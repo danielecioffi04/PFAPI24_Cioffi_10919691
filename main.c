@@ -7,39 +7,70 @@
 #define ADD_ING_ID          2       //Id rifornimento
 #define ADD_ORDER_ID        3       //Id ordine
 
-//lunghezza massima di un comando preso in input
-#define COMMAND_LENGTH  16
+//Lunghezze
+#define COMMAND_LENGTH      16      //lunghezza massima di un comando preso in input
+#define ARG_LENGTH          255     //Lunghezza massima di un argomento (ingredienti, ricette...) di un comando preso in input
 
-//Lunghezza massima di un argomento (ingredienti, ricette...) di un comando preso in input
-#define ARG_LENGTH      255
+//Prototipi
+void add_recipe();
+
+void elaborateCommand(char[]);
+
+//Forward declaration struct
+typedef struct ingredient ingredient;
+typedef struct ingredient_node ingredient_node;
+typedef struct recipe recipe;
+typedef struct order order;
+typedef struct courier_config courier_config;
 
 //Struct per gli elementi della pasticceria
-typedef struct{
+struct ingredient{
     char name[ARG_LENGTH];
     int quantity;
     int expiration;
-} ingredient;
+};
 
-typedef struct{
+struct recipe{
     char name[ARG_LENGTH];
-    //aggiungere lista in ingredienti
-} recipe;
+    ingredient_node* ingHead;
+    ingredient_node* last;
+};
 
-typedef struct{
+struct order{
     recipe recipe;
-    int arrival_time;
-} order;
+    int arrivalTime;
+};
+
+//Struct per la costruzione delle strutture dati
+struct ingredient_node{
+    ingredient content;
+    ingredient_node* next;
+};
 
 //Configurazione corriere
-typedef struct{
+struct courier_config{
     int clock;              //ogni quanto passa il corriere
-    int max_quantity;       //capienza  del corriere
-} courier_config;
+    int maxQuantity;        //capienza  del corriere
+};
 
 
 //Variabili globali
 courier_config  courierConfig;              //Configurazioni del corriere
 int             time = 0;                   //Istante di tempo attuale
+
+int main(){
+    int             status;                     //Var in cui si conserva il valore dell'ultimo scanf
+    char            command[COMMAND_LENGTH];    //Comando corrente da eseguire
+    
+    //Lettura dell'input
+    status = scanf("%d %d\n", &courierConfig.clock, &courierConfig.maxQuantity); //Lettura della configurazione del corriere
+    do{
+        status = scanf("%s", command);
+        if(status == 1) elaborateCommand(command);
+    }while(status == 1);
+
+    printf("Fine comandi\n");
+}
 
 //Utilities
 //Funzione che collega il comando alla rispettiva funzione da eseguire
@@ -55,6 +86,7 @@ void elaborateCommand(char command[]){
     switch (commandID){
         case 0:
             printf("Comando rilevato: \"aggiungi_ricetta\"\n");
+            add_recipe();
             break;
         
         case 1:
@@ -74,17 +106,22 @@ void elaborateCommand(char command[]){
     }   
 }
 
+//Funzioni
+void add_recipe(){
+    int     status;                                 //Var in cui si conserva il valore dell'ultimo scanf;
+    char    name[ARG_LENGTH];                       //Nome della ricetta
+    char    eol = '0';                              //Var per controllare la fine della linea
+    char    ingName[ARG_LENGTH];                    //Ingrediente
+    int     ingQuantity;                            //Quantità ingrediente
 
-int main(){
-    int             status;                     //Var in cui si conserva il valore dell'ultimo scanf
-    char            command[COMMAND_LENGTH];    //Comando corrente da eseguire
-    
-    //Lettura dell'input
-    status = scanf("%d %d\n", &courierConfig.clock, &courierConfig.max_quantity); //Lettura della configurazione del corriere
+    status = scanf("%s", name);                     //Lettura del nome della ricetta
+    printf("Nome ricetta: %s\n", name);
+
     do{
-        status = scanf("%s", command);
-        if(status == 1) elaborateCommand(command);
-    }while(status == 1);
+        status = scanf("%s %d", ingName, &ingQuantity);
+        printf("Nome ingrediente: %s\nQuantita' ingrediente: %d\n", ingName, ingQuantity);
+        status = scanf("%c", &eol);
+    }while(eol != '\n');
 
-    printf("Fine comandi\n");
+    if(status == 0) printf("hello");
 }
