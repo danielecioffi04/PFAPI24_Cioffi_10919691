@@ -48,6 +48,8 @@ struct recipe_node{
     recipe content;
     recipe_node* left;
     recipe_node* right;
+    recipe_node* parent;
+    char color;
 };
 
 //Configurazione corriere
@@ -58,7 +60,10 @@ struct courier_config{
 
 //Prototipi
 void    add_recipe();
-int     addRecipeToTree(recipe_node**, recipe_node*);
+int     insertRecipe(recipe_node**, recipe_node*);
+void    leftRotate(recipe_node**, recipe_node*);
+void    rightRotate(recipe_node**, recipe_node*);
+void    insertRecipeFixUp(recipe_node**, recipe_node*);
 
 void    printPreOrder(recipe_node*, int);
 void    elaborateCommand(char[]);
@@ -99,7 +104,7 @@ void elaborateCommand(char command[]){
 
     switch (commandID){
         case 0:
-            printf("Comando rilevato: \"aggiungi_ricetta\"\n");
+            //printf("Comando rilevato: \"aggiungi_ricetta\"\n");
             add_recipe();
             break;
         
@@ -130,7 +135,8 @@ void printPreOrder(recipe_node *node, int depth) {
     for (int i = 0; i < depth; i++) {
         printf("    "); // Quattro spazi per ogni livello di profondità
     }
-    printf("%s\n", node->content.name);
+    if(node != recipeList && node->parent->left != NULL && node == node->parent->left) printf("L - %s - %c\n", node->content.name, node->color);
+    else printf("R - %s - %c\n", node->content.name, node->color);
 
     // Visita il sottoalbero sinistro
     printPreOrder(node->left, depth + 1);
@@ -149,18 +155,22 @@ void add_recipe(){
 
     //Allocazione nuova ricetta da inserire nell'albero
     recipe_node* newNode = (recipe_node*)malloc(sizeof(recipe_node));
+    newNode->left = NULL;
+    newNode->right = NULL;
+    newNode->parent = NULL;
 
     //Lettura nome della ricetta e aggiunta del nodo all'albero se non presente
     status = scanf("%s", newNode->content.name);                    //Lettura del nome della ricetta
-    printf("Nome ricetta: %s\n", newNode->content.name);
-    
-    res = addRecipeToTree(&recipeList, newNode);
+    printf("Ricetta: %s\n", newNode->content.name);
+    res = insertRecipe(&recipeList, newNode);
+
+    //Stampa risultato aggiunta
     if(res == 0){
-        printf("Ricetta già presente\n\n");
+        printf("ignorato\n\n");
         free(newNode);
         return;
     }
-    else printf("Ricetta aggiunta\n\n");
+    else printf("aggiunta\n\n");
 
     //Lettura args  (TODO! CREARE LISTA DEGLI INGREDIENTI)
     do{
@@ -173,32 +183,118 @@ void add_recipe(){
 }
 
 //Aggiunge la ricetta all'albero delle ricette, posso passare recipe_node* newNode senza problemi poichè allocato dinamicamente nell'head 
-int addRecipeToTree(recipe_node** head, recipe_node* newNode){
+int insertRecipe(recipe_node** head, recipe_node* newNode){
+    recipe_node* x = *head;
+    recipe_node* y = NULL;
 
-    //Lista vuota
-    if(*head == NULL){
-        *head = newNode;
-        return 1;
+    while(x != NULL){
+        y = x;
+        int cmp = strcmp(newNode->content.name, x->content.name);
+        if(cmp < 0) x = x->left;
+        else if(cmp == 0) return 0;       //Ricetta già presente in lista
+        else x = x->right;
     }
 
-    //Ricetta già presente
-    if(strcmp((*head)->content.name, newNode->content.name) == 0) return 0;
+    newNode->parent = y;
+    if(y == NULL){
+        *head = newNode;        //Albero vuoto
+    }
+    else if(strcmp(newNode->content.name, y->content.name) < 0) y->left = newNode;
+    else y->right = newNode;
+    newNode->color = 'r';
+    insertRecipeFixUp(head, newNode);
+    return 1;
+}
 
-    //Devo andare in head->right
-    if(strcmp(newNode->content.name, (*head)->content.name) > 0){
-        if((*head)->right == NULL){
-            (*head)->right = newNode;
-            return 1;
-        }
-        return addRecipeToTree(&((*head)->right), newNode);
+void insertRecipeFixUp(recipe_node** head, recipe_node* node){
+    if(node == (*head)){
+        node->color = 'b';
+        return;
     }
 
-    //Devo andare in head->left
-    else{
-        if((*head)->left == NULL){
-            (*head)->left = newNode;
-            return 1;
+    recipe_node* x = node->parent;          //Padre
+    recipe_node* y = NULL;                  //Nonno
+    recipe_node* z = NULL;                  //Zio
+    
+    if(x != NULL) y = x->parent;
+
+    if(x->color == 'r'){
+        if(y != NULL && x == y->left){
+            z = y->right;           //y è lo zio di node
+            //CASO 1
+            if(z != NULL && z->color == 'r'){
+                x->color = 'b';
+                z->color = 'b';
+                y->color = 'r';
+                insertRecipeFixUp(head, y);
+            }
+            //CASO 2
+            else{
+                if(node == x->right){
+                    node = x;
+                    leftRotate(head, node);
+                    x = node->parent;
+                    y = x->parent;
+                }
+                //CASO 3
+                x->color = 'b';
+                x->parent->color = 'r';
+                rightRotate(head, x->parent);
+            }
         }
-        return addRecipeToTree(&((*head)->left), newNode);
+        else{
+            z = y->left;           //y è lo zio di node
+            //CASO 1
+            if(z != NULL && z->color == 'r'){
+                x->color = 'b';
+                z->color = 'b';
+                y->color = 'r';
+                insertRecipeFixUp(head, y);
+            }
+            //CASO 2
+            else{
+                if(node == x->left){
+                    node = x;
+                    rightRotate(head, node);
+                    x = node->parent;
+                    y = x->parent;
+                }
+                //CASO 3
+                x->color = 'b';
+                x->parent->color = 'r';
+                leftRotate(head, x->parent);
+            }
+        }
     }
 }
+
+void leftRotate(recipe_node** head, recipe_node* node){
+    recipe_node* y = node->right;
+    node->right = y->left;
+
+    if(y->left != NULL){
+        y->left->parent = node;
+    }
+    y->parent = node->parent;
+    if(node->parent == NULL) *head = y;
+    else if(node == node->parent->left) node->parent->left = y;
+    else node->parent->right = y;
+    y->left = node;
+    node->parent = y;
+}
+
+void rightRotate(recipe_node** head, recipe_node* node){
+    recipe_node* y = node->left;
+    node->left = y->right;
+    
+    if(y->right != NULL){
+        y->right->parent = node;
+    }
+    y->parent = node->parent;
+    if(node->parent == NULL) *head = y;
+    else if(node == node->parent->right) node->parent->right = y;
+    else node->parent->left = y;
+    y->right = node;
+    node->parent = y;
+}
+
