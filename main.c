@@ -29,8 +29,7 @@ struct ingredient{
 
 struct recipe{
     char name[ARG_LENGTH];
-    ingredient_node* ingHead;
-    ingredient_node* last;
+    ingredient_node* ingList;
 };
 
 struct order{
@@ -58,16 +57,24 @@ struct courier_config{
     int maxQuantity;        //capienza  del corriere
 };
 
-//Prototipi
+//Prototipi---------------------------------------------------------------------------------------------------------------------------
 void    add_recipe();
+
+//Utilities
+void    printTree(recipe_node*, int);
+void    elaborateCommand(char[]);
+
+//Funzioni per albero ricette
 int     insertRecipe(recipe_node**, recipe_node*);
 void    leftRotate(recipe_node**, recipe_node*);
 void    rightRotate(recipe_node**, recipe_node*);
 void    insertRecipeFixUp(recipe_node**, recipe_node*);
 
-void    printPreOrder(recipe_node*, int);
-void    elaborateCommand(char[]);
+//Funzioni per gestione delle liste di ingredienti
+void    addToList(ingredient_node**, ingredient_node*);
+void    printList(ingredient_node*);
 
+//------------------------------------------------------------------------------------------------------------------------------------
 
 //Variabili globali
 int             time = 0;                   //Istante di tempo attuale
@@ -85,6 +92,8 @@ int main(){
         status = scanf("%s", command);
         if(status == 1) elaborateCommand(command);
     }while(status == 1);
+
+    printTree(recipeList, 0);
 
     printf("Fine comandi\n");
     return 1;
@@ -104,20 +113,20 @@ void elaborateCommand(char command[]){
 
     switch (commandID){
         case 0:
-            //printf("Comando rilevato: \"aggiungi_ricetta\"\n");
+            //Aggiungi_ricetta
             add_recipe();
             break;
         
         case 1:
-            //printf("Comando rilevato: \"rimuovi_ricetta\"\n");
+            //Rimuovi_ricetta
             break;
 
         case 2:
-            //printf("Comando rilevato: \"rifornimento\"\n");
+            //Rifornimento
             break;
 
         case 3:
-            //printf("Comando rilevato: \"ordine\"\n");
+            //Ordine
             break;
         
         default:
@@ -126,38 +135,45 @@ void elaborateCommand(char command[]){
 }
 
 //Stampa un albero in modo "carino"
-void printPreOrder(recipe_node *node, int depth) {
+void printTree(recipe_node* node, int depth) {
     if (node == NULL) {
         return;
     }
 
-    // Stampa il nodo corrente con indentazione basata sulla profondità
     for (int i = 0; i < depth; i++) {
-        printf("    "); // Quattro spazi per ogni livello di profondità
+        printf("    ");
     }
     if(node != recipeList && node->parent->left != NULL && node == node->parent->left) printf("L - %s - %c\n", node->content.name, node->color);
     else printf("R - %s - %c\n", node->content.name, node->color);
 
-    // Visita il sottoalbero sinistro
-    printPreOrder(node->left, depth + 1);
+    printTree(node->left, depth + 1);
 
-    // Visita il sottoalbero destro
-    printPreOrder(node->right, depth + 1);
+    printTree(node->right, depth + 1);
+}
+
+//Stampa lista
+void printList(ingredient_node* head){
+    while(head != NULL){
+        printf("-> %s %d ", head->content.name, head->content.quantity);
+        head = head->next;
+    }
+    printf("\n\n");
 }
 
 //Funzioni
 void add_recipe(){
     int     status;                                 //Var in cui si conserva il valore dell'ultimo scanf;
     char    eol = '0';                              //Var per controllare la fine della linea
-    char    ingName[ARG_LENGTH];                    //Ingrediente
-    int     ingQuantity;                            //Quantità ingrediente
+    //char    ingName[ARG_LENGTH];                    //Ingrediente
+    //int     ingQuantity;                            //Quantità ingrediente
     int     res;                                    //Risultato dell'aggiunta della ricetta all'albero
 
-    //Allocazione nuova ricetta da inserire nell'albero
+    //Allocazione e inizializzazione nuova ricetta da inserire nell'albero
     recipe_node* newNode = (recipe_node*)malloc(sizeof(recipe_node));
     newNode->left = NULL;
     newNode->right = NULL;
     newNode->parent = NULL;
+    newNode->content.ingList = NULL;
 
     //Lettura nome della ricetta e aggiunta del nodo all'albero se non presente
     status = scanf("%s", newNode->content.name);                    //Lettura del nome della ricetta
@@ -170,14 +186,20 @@ void add_recipe(){
         free(newNode);
         return;
     }
-    else printf("aggiunta\n\n");
+    else printf("aggiunta\n");
 
     //Lettura args  (TODO! CREARE LISTA DEGLI INGREDIENTI)
     do{
-        status = scanf("%s %d", ingName, &ingQuantity);
-        //printf("Nome ingrediente: %s\nQuantita' ingrediente: %d\n", ingName, ingQuantity);
+        ingredient_node* newIng = (ingredient_node*)malloc(sizeof(ingredient_node));
+        ingredient tmp;
+        status = scanf(" %s %d", tmp.name, &tmp.quantity);
+        newIng->content = tmp;
+        addToList(&newNode->content.ingList, newIng);
+
         status = scanf("%c", &eol);
     }while(eol != '\n');
+
+    //printList(newNode->content.ingList);
 
     if(status == 0) printf("hello");
 }
@@ -298,3 +320,14 @@ void rightRotate(recipe_node** head, recipe_node* node){
     node->parent = y;
 }
 
+//Funzioni su liste di ingredienti
+void addToList(ingredient_node** head, ingredient_node* newNode){       //Inserimento in testa
+    if(*head == NULL) {
+        *head = newNode;
+        return;
+    }
+
+    ingredient_node* tmp = *head;
+    *head = newNode;
+    newNode->next = tmp;
+}
