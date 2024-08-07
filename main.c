@@ -87,7 +87,7 @@ void    insertIngredientFixUp(ingredient_node**, ingredient_node*);
 //Funzioni per gestione delle liste di ingredienti
 void    addToList(ingredient_node**, ingredient_node*);
 void    printList(ingredient_node*);
-void    addInOrderList(ingredient_node**, ingredient_node*, ingredient_node*);
+void    addInOrderList(ingredient_node**, ingredient_node*, ingredient_node*, ingredient_node*);
 
 //------------------------------------------------------------------------------------------------------------------------------------
 
@@ -174,8 +174,10 @@ void printTreeIng(ingredient_node* node, int depth) {
     for (int i = 0; i < depth; i++) {
         printf("    ");
     }
-    if(node != stock && node->parent->left != NULL && node == node->parent->left) printf("L - %s - %c\n", node->content.name, node->color);
-    else printf("R - %s - %c\n", node->content.name, node->color);
+    if(node != stock && node->parent->left != NULL && node == node->parent->left) printf("L - %s - %c ----", node->content.name, node->color);
+    else printf("R - %s - %c ----", node->content.name, node->color);
+
+    printList(node);
 
     printTreeIng(node->left, depth + 1);
 
@@ -185,7 +187,7 @@ void printTreeIng(ingredient_node* node, int depth) {
 //Stampa lista
 void printList(ingredient_node* head){
     while(head != NULL){
-        printf("-> %s %d ", head->content.name, head->content.quantity);
+        printf(" -> %s %d %d", head->content.name, head->content.quantity, head->content.expiration);
         head = head->next;
     }
     printf("\n\n");
@@ -263,7 +265,7 @@ void rifornimento(){
         status = scanf("%c", &eol);
     }while(eol != '\n');
 
-    printf("rifornito\n");
+    printTreeIng(stock, 0);
 
     if(status == 0) printf("Error");
 }
@@ -394,7 +396,7 @@ int insertIngredient(ingredient_node** head, ingredient_node* newNode){
         int cmp = strcmp(newNode->content.name, x->content.name);
         if(cmp < 0) x = x->left;
         else if(cmp == 0){
-            addInOrderList(head, newNode, x);
+            addInOrderList(head, newNode, x, NULL);
             return 0;
         }
         else x = x->right;
@@ -515,6 +517,33 @@ void addToList(ingredient_node** head, ingredient_node* newNode){       //Inseri
     newNode->next = tmp;
 }
 
-void addInOrderList(ingredient_node** head, ingredient_node* newNode, ingredient_node* oldNode){
-    printf("aggiunere in ordine\n");
+void addInOrderList(ingredient_node** head, ingredient_node* newNode, ingredient_node* curr, ingredient_node* prev){
+    //Aggiungere in testa
+    if(curr == *head && newNode->content.expiration < curr->content.expiration){
+        newNode->right = curr->right;
+        newNode->left = curr->left;
+        newNode->next = curr;
+        curr->right = NULL;
+        curr->left = NULL;
+        *head = newNode;
+        return;
+    }
+
+    //Aggiungere "dentro" la lista
+    if(curr != NULL && newNode->content.expiration > curr->content.expiration) addInOrderList(head, newNode, curr->next, curr);
+    
+    if(curr != NULL){
+        if(newNode->content.expiration == curr->content.expiration){
+            curr->content.quantity += newNode->content.quantity;
+            free(newNode);
+        }
+        else if(newNode->content.expiration < curr->content.expiration){
+            prev->next = newNode;
+            newNode->next = curr->next;
+        }
+    }
+    //Aggiungere in coda
+    else{
+        prev->next = newNode;
+    }
 }
