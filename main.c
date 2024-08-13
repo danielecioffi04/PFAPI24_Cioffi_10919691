@@ -17,8 +17,11 @@ typedef struct ingredient ingredient;
 typedef struct ingredient_node ingredient_node;
 typedef struct recipe recipe;
 typedef struct order order;
+typedef struct stockItem stockItem;
 typedef struct courier_config courier_config;
 typedef struct recipe_node recipe_node;
+typedef struct stock_node stock_node;
+typedef struct lot_node lot_node;
 
 //Struct per gli elementi della pasticceria
 struct ingredient{
@@ -36,6 +39,11 @@ struct order{
     int arrivalTime;
 };
 
+struct stockItem{
+    ingredient ing;
+    lot_node* head;
+};
+
 //Struct per la costruzione delle strutture dati
 struct ingredient_node{         //Usato per liste di ingredienti nelle ricette
     ingredient content;
@@ -50,6 +58,23 @@ struct recipe_node{             //Usato per costruire albero di ricette
     char color;
 };
 
+struct stock_node{              //Usato per costruire albero del magazzino
+    char name[ARG_LENGTH];
+    stock_node* parent;
+    stock_node* right;
+    stock_node* left;
+    lot_node* lotHead;
+    char color;
+};
+
+struct lot_node{                //Usato per costruire albero dei lotti
+    int expiration;
+    int quantity;
+    lot_node* left;
+    lot_node* right;
+    lot_node* parent;
+};
+
 //Configurazione corriere
 struct courier_config{
     int clock;              //ogni quanto passa il corriere
@@ -58,16 +83,24 @@ struct courier_config{
 
 //Prototipi---------------------------------------------------------------------------------------------------------------------------
 void    add_recipe();
+void    rifornimento();
 
 //Utilities
-void    printTree(recipe_node*, int);
+void    printRecipeTree(recipe_node*, int);
+void    printStockTree(stock_node*, int);
 void    elaborateCommand(char[]);
 
 //Funzioni per albero ricette
 int     insertRecipe(recipe_node**, recipe_node*);
-void    leftRotate(recipe_node**, recipe_node*);
-void    rightRotate(recipe_node**, recipe_node*);
+void    leftRotateRecipe(recipe_node**, recipe_node*);
+void    rightRotateRecipe(recipe_node**, recipe_node*);
 void    insertRecipeFixUp(recipe_node**, recipe_node*);
+
+//Funzioni per albero magazzino
+void    insertStockItem(stock_node**, stock_node*);
+void    leftRotateStockItem(stock_node**, stock_node*);
+void    rightRotateStockItem(stock_node**, stock_node*);
+void    insertStockItemFixUp(stock_node**, stock_node*);
 
 //Funzioni per gestione delle liste di ingredienti
 void    addToList(ingredient_node**, ingredient_node*);
@@ -79,6 +112,7 @@ void    printList(ingredient_node*);
 int             time = 0;                   //Istante di tempo attuale
 courier_config  courierConfig;              //Configurazioni del corriere
 recipe_node*    recipeList = NULL;          //Albero delle ricette
+stock_node*     stock = NULL;               //Albero magazzino
 
 //MAIN ===============================================================================================================================
 int main(){
@@ -92,9 +126,8 @@ int main(){
         if(status == 1) elaborateCommand(command);
     }while(status == 1);
 
-    printTree(recipeList, 0);
-
-    printf("Fine comandi\n");
+    //printRecipeTree(recipeList, 0);
+    //printStockTree(stock, 0);
     return 1;
 }
 //====================================================================================================================================
@@ -122,6 +155,7 @@ void elaborateCommand(char command[]){
 
         case 2:
             //Rifornimento
+            rifornimento();
             break;
 
         case 3:
@@ -134,7 +168,7 @@ void elaborateCommand(char command[]){
 }
 
 //Stampa un albero in modo "carino"
-void printTree(recipe_node* node, int depth) {
+void printRecipeTree(recipe_node* node, int depth) {
     if (node == NULL) {
         return;
     }
@@ -145,9 +179,25 @@ void printTree(recipe_node* node, int depth) {
     if(node != recipeList && node->parent->left != NULL && node == node->parent->left) printf("L - %s - %c\n", node->content.name, node->color);
     else printf("R - %s - %c\n", node->content.name, node->color);
 
-    printTree(node->left, depth + 1);
+    printRecipeTree(node->left, depth + 1);
 
-    printTree(node->right, depth + 1);
+    printRecipeTree(node->right, depth + 1);
+}
+
+void printStockTree(stock_node* node, int depth){
+    if (node == NULL) {
+        return;
+    }
+
+    for (int i = 0; i < depth; i++) {
+        printf("    ");
+    }
+    if(node != stock && node->parent->left != NULL && node == node->parent->left) printf("L - %s - %c\n", node->name, node->color);
+    else printf("R - %s - %c\n", node->name, node->color);
+
+    printStockTree(node->left, depth + 1);
+
+    printStockTree(node->right, depth + 1);
 }
 
 //Stampa lista
@@ -156,15 +206,12 @@ void printList(ingredient_node* head){
         printf("-> %s %d ", head->content.name, head->content.quantity);
         head = head->next;
     }
-    printf("\n\n");
 }
 
 //Funzioni
 void add_recipe(){
     int     status;                                 //Var in cui si conserva il valore dell'ultimo scanf;
     char    eol = '0';                              //Var per controllare la fine della linea
-    //char    ingName[ARG_LENGTH];                    //Ingrediente
-    //int     ingQuantity;                            //Quantità ingrediente
     int     res;                                    //Risultato dell'aggiunta della ricetta all'albero
 
     //Allocazione e inizializzazione nuova ricetta da inserire nell'albero
@@ -180,7 +227,7 @@ void add_recipe(){
 
     //Stampa risultato aggiunta
     if(res == 0){
-        printf("ignorato\n\n");
+        printf("ignorato\n");
         free(newNode);
         return;
     }
@@ -197,12 +244,30 @@ void add_recipe(){
         status = scanf("%c", &eol);
     }while(eol != '\n');
 
-    //printList(newNode->content.ingList);
-
     if(status == 0) printf("hello");
 }
 
-//Aggiunge la ricetta all'albero delle ricette, posso passare recipe_node* newNode senza problemi poichè allocato dinamicamente nell'head 
+void rifornimento(){
+    int     status;                                 //Var in cui si conserva il valore dell'ultimo scanf;
+    char    eol = '0';                              //Var per controllare la fine della linea
+    int     expiration;                             //Var che contiene la data di scadenza del lotto corrente
+    //int     quantity;                               //Var che contiene la quantità del lotto corrente
+
+    //Lettura args
+    do{
+        stock_node* newNode = (stock_node*)malloc(sizeof(stock_node));
+
+        status = scanf(" %s %d %d", newNode->name, &expiration, &expiration);
+        insertStockItem(&stock, newNode);
+        status = scanf("%c", &eol);
+    }while(eol != '\n');
+
+    printf("rifornito\n");
+
+    if(status == 0) printf("Error");
+}
+
+//Funzioni albero ricette
 int insertRecipe(recipe_node** head, recipe_node* newNode){
     recipe_node* x = *head;
     recipe_node* y = NULL;
@@ -252,14 +317,14 @@ void insertRecipeFixUp(recipe_node** head, recipe_node* node){
             else{
                 if(node == x->right){
                     node = x;
-                    leftRotate(head, node);
+                    leftRotateRecipe(head, node);
                     x = node->parent;
                     y = x->parent;
                 }
                 //CASO 3
                 x->color = 'b';
                 x->parent->color = 'r';
-                rightRotate(head, x->parent);
+                rightRotateRecipe(head, x->parent);
             }
         }
         else{
@@ -275,20 +340,20 @@ void insertRecipeFixUp(recipe_node** head, recipe_node* node){
             else{
                 if(node == x->left){
                     node = x;
-                    rightRotate(head, node);
+                    rightRotateRecipe(head, node);
                     x = node->parent;
                     y = x->parent;
                 }
                 //CASO 3
                 x->color = 'b';
                 x->parent->color = 'r';
-                leftRotate(head, x->parent);
+                leftRotateRecipe(head, x->parent);
             }
         }
     }
 }
 
-void leftRotate(recipe_node** head, recipe_node* node){
+void leftRotateRecipe(recipe_node** head, recipe_node* node){
     recipe_node* y = node->right;
     node->right = y->left;
 
@@ -303,7 +368,7 @@ void leftRotate(recipe_node** head, recipe_node* node){
     node->parent = y;
 }
 
-void rightRotate(recipe_node** head, recipe_node* node){
+void rightRotateRecipe(recipe_node** head, recipe_node* node){
     recipe_node* y = node->left;
     node->left = y->right;
     
@@ -317,6 +382,126 @@ void rightRotate(recipe_node** head, recipe_node* node){
     y->right = node;
     node->parent = y;
 }
+
+//Funzioni albero magazzino
+void insertStockItem(stock_node** head, stock_node* newNode){
+    stock_node* x = *head;
+    stock_node* y = NULL;
+
+    while(x != NULL){
+        y = x;
+        int cmp = strcmp(newNode->name, x->name);
+        if(cmp < 0) x = x->left;
+        else if(cmp == 0){
+            printf("Ingrediente già presente\n");
+            return;
+        }
+        else x = x->right;
+    }
+
+    newNode->parent = y;
+    if(y == NULL){
+        *head = newNode;        //Albero vuoto
+    }
+    else if(strcmp(newNode->name, y->name) < 0) y->left = newNode;
+    else y->right = newNode;
+    newNode->color = 'r';
+    insertStockItemFixUp(head, newNode);
+}
+
+void insertStockItemFixUp(stock_node** head, stock_node* node){
+    if(node == (*head)){
+        node->color = 'b';
+        return;
+    }
+
+    stock_node* x = node->parent;          //Padre
+    stock_node* y = NULL;                  //Nonno
+    stock_node* z = NULL;                  //Zio
+    
+    if(x != NULL) y = x->parent;
+
+    if(x->color == 'r'){
+        if(y != NULL && x == y->left){
+            z = y->right;           //y è lo zio di node
+            //CASO 1
+            if(z != NULL && z->color == 'r'){
+                x->color = 'b';
+                z->color = 'b';
+                y->color = 'r';
+                insertStockItemFixUp(head, y);
+            }
+            //CASO 2
+            else{
+                if(node == x->right){
+                    node = x;
+                    leftRotateStockItem(head, node);
+                    x = node->parent;
+                    y = x->parent;
+                }
+                //CASO 3
+                x->color = 'b';
+                x->parent->color = 'r';
+                rightRotateStockItem(head, x->parent);
+            }
+        }
+        else{
+            z = y->left;           //y è lo zio di node
+            //CASO 1
+            if(z != NULL && z->color == 'r'){
+                x->color = 'b';
+                z->color = 'b';
+                y->color = 'r';
+                insertStockItemFixUp(head, y);
+            }
+            //CASO 2
+            else{
+                if(node == x->left){
+                    node = x;
+                    rightRotateStockItem(head, node);
+                    x = node->parent;
+                    y = x->parent;
+                }
+                //CASO 3
+                x->color = 'b';
+                x->parent->color = 'r';
+                leftRotateStockItem(head, x->parent);
+            }
+        }
+    }
+}
+
+void leftRotateStockItem(stock_node** head, stock_node* node){
+    stock_node* y = node->right;
+    node->right = y->left;
+
+    if(y->left != NULL){
+        y->left->parent = node;
+    }
+    y->parent = node->parent;
+    if(node->parent == NULL) *head = y;
+    else if(node == node->parent->left) node->parent->left = y;
+    else node->parent->right = y;
+    y->left = node;
+    node->parent = y;
+}
+
+void rightRotateStockItem(stock_node** head, stock_node* node){
+    stock_node* y = node->left;
+    node->left = y->right;
+    
+    if(y->right != NULL){
+        y->right->parent = node;
+    }
+    y->parent = node->parent;
+    if(node->parent == NULL) *head = y;
+    else if(node == node->parent->right) node->parent->right = y;
+    else node->parent->left = y;
+    y->right = node;
+    node->parent = y;
+}
+
+
 
 //Funzioni su liste di ingredienti
 void addToList(ingredient_node** head, ingredient_node* newNode){       //Inserimento in testa
