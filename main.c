@@ -9,8 +9,8 @@
 #define ADD_ORDER_ID        3       //Id ordine
 
 //Lunghezze
-#define COMMAND_LENGTH      16      //lunghezza massima di un comando preso in input
-#define ARG_LENGTH          255     //Lunghezza massima di un argomento (ingredienti, ricette...) di un comando preso in input
+#define COMMAND_LENGTH      17      //lunghezza massima di un comando preso in input
+#define ARG_LENGTH          256     //Lunghezza massima di un argomento (ingredienti, ricette...) di un comando preso in input
 
 //Forward declaration struct
 typedef struct ingredient ingredient;
@@ -73,6 +73,7 @@ struct lot_node{                //Usato per costruire albero dei lotti
     lot_node* left;
     lot_node* right;
     lot_node* parent;
+    char color;
 };
 
 //Configurazione corriere
@@ -88,6 +89,8 @@ void    rifornimento();
 //Utilities
 void    printRecipeTree(recipe_node*, int);
 void    printStockTree(stock_node*, int);
+void    printLotTree(lot_node*, int, stock_node*);
+void    printAllLots(stock_node*);
 void    elaborateCommand(char[]);
 
 //Funzioni per albero ricette
@@ -97,10 +100,16 @@ void    rightRotateRecipe(recipe_node**, recipe_node*);
 void    insertRecipeFixUp(recipe_node**, recipe_node*);
 
 //Funzioni per albero magazzino
-void    insertStockItem(stock_node**, stock_node*);
+void    insertStockItem(stock_node**, stock_node*, lot_node*);
 void    leftRotateStockItem(stock_node**, stock_node*);
 void    rightRotateStockItem(stock_node**, stock_node*);
 void    insertStockItemFixUp(stock_node**, stock_node*);
+
+//Funzioni per gli alberi lotti
+void     insertLot(lot_node**, lot_node*);
+void    leftRotateLot(lot_node**, lot_node*);
+void    rightRotateLot(lot_node**, lot_node*);
+void    insertLotFixUp(lot_node**, lot_node*);
 
 //Funzioni per gestione delle liste di ingredienti
 void    addToList(ingredient_node**, ingredient_node*);
@@ -126,8 +135,12 @@ int main(){
         if(status == 1) elaborateCommand(command);
     }while(status == 1);
 
-    //printRecipeTree(recipeList, 0);
-    //printStockTree(stock, 0);
+    /*
+    printf("=============================\n");
+    printf("Magazzino\n");
+    printStockTree(stock, 0);
+    printAllLots(stock);
+    */
     return 1;
 }
 //====================================================================================================================================
@@ -200,6 +213,32 @@ void printStockTree(stock_node* node, int depth){
     printStockTree(node->right, depth + 1);
 }
 
+void printLotTree(lot_node* node, int depth, stock_node* parent){
+    if (node == NULL) {
+        return;
+    }
+
+    for (int i = 0; i < depth; i++) {
+        printf("    ");
+    }
+    if(node != parent->lotHead && node->parent->left != NULL && node == node->parent->left) printf("L - %d - %d - %c\n", node->quantity, node->expiration, node->color);
+    else printf("R - %d - %d - %c\n", node->quantity, node->expiration, node->color);
+
+    printLotTree(node->left, depth + 1, parent);
+
+    printLotTree(node->right, depth + 1, parent);
+}
+
+void printAllLots(stock_node* head){
+    stock_node* curr = head;
+
+    printf("=============================\n");
+    printf("Lotto: %s\n", curr->name);
+    printLotTree(curr->lotHead, 0, curr);
+    if(curr->left != NULL) printAllLots(curr->left);
+    if(curr->right != NULL) printAllLots(curr->right);
+}
+
 //Stampa lista
 void printList(ingredient_node* head){
     while(head != NULL){
@@ -250,15 +289,14 @@ void add_recipe(){
 void rifornimento(){
     int     status;                                 //Var in cui si conserva il valore dell'ultimo scanf;
     char    eol = '0';                              //Var per controllare la fine della linea
-    int     expiration;                             //Var che contiene la data di scadenza del lotto corrente
-    //int     quantity;                               //Var che contiene la quantità del lotto corrente
-
+    
     //Lettura args
     do{
         stock_node* newNode = (stock_node*)malloc(sizeof(stock_node));
+        lot_node* newLot = (lot_node*)malloc(sizeof(lot_node));
 
-        status = scanf(" %s %d %d", newNode->name, &expiration, &expiration);
-        insertStockItem(&stock, newNode);
+        status = scanf(" %s %d %d", newNode->name, &(newLot->quantity), &(newLot->expiration));
+        insertStockItem(&stock, newNode, newLot);
         status = scanf("%c", &eol);
     }while(eol != '\n');
 
@@ -384,7 +422,7 @@ void rightRotateRecipe(recipe_node** head, recipe_node* node){
 }
 
 //Funzioni albero magazzino
-void insertStockItem(stock_node** head, stock_node* newNode){
+void insertStockItem(stock_node** head, stock_node* newNode, lot_node* newLot){
     stock_node* x = *head;
     stock_node* y = NULL;
 
@@ -393,12 +431,14 @@ void insertStockItem(stock_node** head, stock_node* newNode){
         int cmp = strcmp(newNode->name, x->name);
         if(cmp < 0) x = x->left;
         else if(cmp == 0){
-            printf("Ingrediente già presente\n");
+            insertLot(&(x->lotHead), newLot);
             return;
         }
         else x = x->right;
     }
 
+    newLot->color = 'b';
+    newNode->lotHead = newLot;      //Primo lotto da aggiungere
     newNode->parent = y;
     if(y == NULL){
         *head = newNode;        //Albero vuoto
@@ -501,6 +541,123 @@ void rightRotateStockItem(stock_node** head, stock_node* node){
     node->parent = y;
 }
 
+//Funzioni albero lotti
+void insertLot(lot_node** head, lot_node* newNode){
+    lot_node* x = *head;
+    lot_node* y = NULL;
+
+    while(x != NULL){
+        y = x;
+        if(newNode->expiration < x->expiration) x = x->left;
+        else if(newNode->expiration == x->expiration){
+            x->quantity += newNode->quantity;
+            free(newNode);
+            return;
+        }
+        else x = x->right;
+    }
+
+    newNode->parent = y;
+    if(y == NULL){
+        *head = newNode;        //Albero vuoto
+    }
+    else if(newNode->expiration < y->expiration) y->left = newNode;
+    else y->right = newNode;
+    newNode->color = 'r';
+    insertLotFixUp(head, newNode);
+}
+
+void insertLotFixUp(lot_node** head, lot_node* node){
+    if(node == (*head)){
+        node->color = 'b';
+        return;
+    }
+
+    lot_node* x = node->parent;          //Padre
+    lot_node* y = NULL;                  //Nonno
+    lot_node* z = NULL;                  //Zio
+    
+    if(x != NULL) y = x->parent;
+
+    if(x->color == 'r'){
+        if(y != NULL && x == y->left){
+            z = y->right;           //y è lo zio di node
+            //CASO 1
+            if(z != NULL && z->color == 'r'){
+                x->color = 'b';
+                z->color = 'b';
+                y->color = 'r';
+                insertLotFixUp(head, y);
+            }
+            //CASO 2
+            else{
+                if(node == x->right){
+                    node = x;
+                    leftRotateLot(head, node);
+                    x = node->parent;
+                    y = x->parent;
+                }
+                //CASO 3
+                x->color = 'b';
+                x->parent->color = 'r';
+                rightRotateLot(head, x->parent);
+            }
+        }
+        else{
+            z = y->left;           //y è lo zio di node
+            //CASO 1
+            if(z != NULL && z->color == 'r'){
+                x->color = 'b';
+                z->color = 'b';
+                y->color = 'r';
+                insertLotFixUp(head, y);
+            }
+            //CASO 2
+            else{
+                if(node == x->left){
+                    node = x;
+                    rightRotateLot(head, node);
+                    x = node->parent;
+                    y = x->parent;
+                }
+                //CASO 3
+                x->color = 'b';
+                x->parent->color = 'r';
+                leftRotateLot(head, x->parent);
+            }
+        }
+    }
+}
+
+void leftRotateLot(lot_node** head, lot_node* node){
+    lot_node* y = node->right;
+    node->right = y->left;
+
+    if(y->left != NULL){
+        y->left->parent = node;
+    }
+    y->parent = node->parent;
+    if(node->parent == NULL) *head = y;
+    else if(node == node->parent->left) node->parent->left = y;
+    else node->parent->right = y;
+    y->left = node;
+    node->parent = y;
+}
+
+void rightRotateLot(lot_node** head, lot_node* node){
+    lot_node* y = node->left;
+    node->left = y->right;
+    
+    if(y->right != NULL){
+        y->right->parent = node;
+    }
+    y->parent = node->parent;
+    if(node->parent == NULL) *head = y;
+    else if(node == node->parent->right) node->parent->right = y;
+    else node->parent->left = y;
+    y->right = node;
+    node->parent = y;
+}
 
 
 //Funzioni su liste di ingredienti
