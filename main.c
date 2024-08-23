@@ -68,10 +68,14 @@ void                    addToRecipeHT(recipeList_node*);
 int                     addToBucket(recipeList_node*, unsigned int);
 unsigned int            hash(char*);
 
+//Funzioni per liste di ingredienti
+void                    insertIngredientList(ingredientList_node**, ingredientList_node*);
+
 //Utilities
 void                    elaborateCommand(char[]);
 void                    printRecipeHT();
 void                    printRecipeList(recipeList_node*);
+void                    printIngredientList(ingredientList_node*);
 //------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -96,6 +100,7 @@ int main(){
         if(status == 1) elaborateCommand(command);
     }while(status == 1);
 
+    //Stampe per verifiche
     printRecipeHT();
 
     //Free della memoria usata per le strutture dati statiche
@@ -152,7 +157,16 @@ void printRecipeHT(){
 void printRecipeList(recipeList_node* x){
     if(x == NULL)return;
     printf("-> %s ", x->content.name);
+    printf("(INGREDIENTI: ");
+    printIngredientList(x->content.ingHead);
+    printf(")");
     printRecipeList(x->next);
+}
+
+void printIngredientList(ingredientList_node* x){
+    if(x == NULL)return;
+    printf("-> %s %d", x->content.name, x->content.quantity);
+    printIngredientList(x->next);
 }
 
 //aggiungi_ricetta
@@ -167,15 +181,22 @@ void aggiungi_ricetta(){
     status = scanf("%s", name);                     //Lettura del nome della ricetta
 
     do{
+        //Lettura ingredienti
+        status = scanf("%s %d", ingName, &ingQuantity);
+        
+        //Creazione ingrediente
+        ingredientList_node* newIng = (ingredientList_node*)malloc(sizeof(ingredientList_node));
+        newIng->content.name = (char*)malloc(strlen(ingName) + 1);
+        strcpy(newIng->content.name, ingName);
+        newIng->content.quantity = ingQuantity;
+
         //Creazione ricetta
         recipeList_node* newRecipe = (recipeList_node*)malloc(sizeof(recipeList_node));
         newRecipe->content.name = (char*)malloc(strlen(name) + 1);
         strcpy(newRecipe->content.name, name);
+        insertIngredientList(&(newRecipe->content.ingHead), newIng);
+        
         addToRecipeHT(newRecipe);
-
-        //Lettura ingredienti
-        status = scanf("%s %d", ingName, &ingQuantity);
-
         status = scanf("%c", &eol);
     }while(eol != '\n');
 
@@ -197,6 +218,7 @@ void addToRecipeHT(recipeList_node* x){
     else printf("aggiunta\n");
 }
 
+//Funzioni per recipeHashTable
 unsigned int hash(char* x){
     unsigned int res = 0;
 
@@ -223,3 +245,12 @@ int addToBucket(recipeList_node* x, unsigned int index){
     return 1;
 }
 
+void insertIngredientList(ingredientList_node** head, ingredientList_node* x){
+    if(*head == NULL){
+        *head = x;
+        return;
+    }
+
+    x->next = *head;
+    *head = x;
+}
