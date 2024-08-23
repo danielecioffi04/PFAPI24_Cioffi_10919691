@@ -25,7 +25,7 @@ typedef struct order order;
 typedef struct courier_config courier_config;
 typedef struct ingredientList_node ingredientList_node;
 typedef struct recipeList_node recipeList_node;
-typedef struct lotTree_node lotTree_node;
+typedef struct stockList_node stockList_node;
 typedef struct lotList_node lotList_node;
 
 //Struct per gli elementi della pasticceria
@@ -51,17 +51,14 @@ struct ingredientList_node{
 };
 
 struct lotList_node{
-    lotTree_node* lot;
+    ingredient content;
+    int expiration;
     lotList_node* next;
 };
 
-struct lotTree_node{
-    ingredient content;
-    int expiration;
-    lotTree_node* left;
-    lotTree_node* right;
-    lotTree_node* parent;
-    char color;
+struct stockList_node{
+    lotList_node* lot;
+    stockList_node* next;
 };
 
 struct recipeList_node{
@@ -81,22 +78,19 @@ void                    aggiungi_ricetta();
 void                    rifornimento();
 
 //Funzioni tabella hash ricette
-void                    addToRecipeHT(recipeList_node*);
+int                     addToRecipeHT(recipeList_node*);
 int                     addToBucketRecipe(recipeList_node*, unsigned int);
 unsigned int            hash(char*);
 
 //Funzioni tabella hash magazzino
-void                    addToStockHT(lotList_node*);
-void                    addToBucketStock(lotList_node*, unsigned int);
+void                    addToStockHT(stockList_node*);
+void                    addToBucketStock(stockList_node*, unsigned int);
 
 //Funzioni per liste di ingredienti
 void                    insertIngredientList(ingredientList_node**, ingredientList_node*);
 
-//Funzioni per albero rb di lotti
-void                    insertLot(lotTree_node**, lotTree_node*);
-void                    leftRotateLot(lotTree_node**, lotTree_node*);
-void                    rightRotateLot(lotTree_node**, lotTree_node*);
-void                    insertLotFixUp(lotTree_node**, lotTree_node*);
+//Funzioni per liste di lotti
+void                    insertLotInOrder(lotList_node**, lotList_node*);
 
 //Utilities
 void                    elaborateCommand(char[]);
@@ -104,15 +98,16 @@ void                    printRecipeHT();
 void                    printRecipeList(recipeList_node*);
 void                    printIngredientList(ingredientList_node*);
 void                    printStockHT();
+void                    printStockLists(stockList_node*);
 void                    printLotList(lotList_node*);
-void                    printLotTree(lotTree_node*, int);
+
 //------------------------------------------------------------------------------------------------------------------------------------
 
 
 //Variabili globali
 courier_config      courierConfig;              //Configurazioni del corriere
 recipeList_node**   recipeHashTable;            //HashTable per ricette
-lotList_node**      stockHashTable;             //HashTable in cui elemento è un albero di lotti ordinati per data di scadenza
+stockList_node**      stockHashTable;             //HashTable in cui elemento è un albero di lotti ordinati per data di scadenza
 int                 time = 0;                   //Istante di tempo attuale
 
 //==============================================================================================================================
@@ -122,7 +117,7 @@ int main(){
 
     //Inizializzazione strutture dati statiche
     recipeHashTable = (recipeList_node**)malloc(HASHTABLE_SIZE * sizeof(recipeList_node*));
-    stockHashTable = (lotList_node**)malloc(HASHTABLE_SIZE * sizeof(lotList_node*));
+    stockHashTable = (stockList_node**)malloc(HASHTABLE_SIZE * sizeof(stockList_node*));
     
     //Lettura dell'input
     status = scanf("%d %d\n", &courierConfig.clock, &courierConfig.maxQuantity); //Lettura della configurazione del corriere
@@ -132,6 +127,7 @@ int main(){
     }while(status == 1);
 
     //Stampe per verifiche
+    printStockHT();
 
     //Free della memoria usata per le strutture dati statiche
     free(recipeHashTable);
@@ -206,35 +202,26 @@ void printStockHT(){
     for(i = 0 ; i < HASHTABLE_SIZE ; i++){
         if(stockHashTable[i] != NULL){
             printf("HT[%d] ", i);
-            printLotList(stockHashTable[i]);
+            printStockLists(stockHashTable[i]);
             printf("\n");
             fflush(stdout);
         }
     }
 }
 
-void printLotList(lotList_node* x){
-    if(x == NULL)return;
-    printf("-> %s ", x->lot->content.name);
-    printf("\n");
-    printLotTree(x->lot, 0);
-    printLotList(x->next);
+void printStockLists(stockList_node* head){
+    if(head == NULL) return;
+
+    printf("==> %s \n", head->lot->content.name);
+    printLotList(head->lot);
+    printStockLists(head->next);
 }
 
-void printLotTree(lotTree_node* node, int depth){
-    if (node == NULL) {
-        return;
-    }
+void printLotList(lotList_node* head){
+    if(head == NULL) return;
 
-    for (int i = 0; i < depth; i++) {
-        printf("    ");
-    }
-    if(node->parent != NULL &&  node->parent->left != NULL && node == node->parent->left) printf("L - %s %d %d- %c\n", node->content.name, node->content.quantity, node->expiration, node->color);
-    else printf("R - %s %d %d- %c\n", node->content.name, node->content.quantity, node->expiration, node->color);
-
-    printLotTree(node->left, depth + 1);
-
-    printLotTree(node->right, depth + 1);
+    printf("-> %s %d %d ", head->content.name, head->content.quantity, head->expiration);
+    printLotList(head->next);
 }
 
 //aggiungi_ricetta
@@ -248,6 +235,18 @@ void aggiungi_ricetta(){
 
     status = scanf("%s", name);                     //Lettura del nome della ricetta
 
+    //Creazione ricetta
+    recipeList_node* newRecipe = (recipeList_node*)malloc(sizeof(recipeList_node));
+    newRecipe->content.name = (char*)malloc(strlen(name) + 1);
+    strcpy(newRecipe->content.name, name);
+
+    int res = addToRecipeHT(newRecipe);
+    if(res == 0){
+        printf("ignorato\n");
+        return;        //Ricetta già presente
+    }
+
+    printf("aggiunta\n");
     do{
         //Lettura ingredienti
         status = scanf("%s %d", ingName, &ingQuantity);
@@ -258,20 +257,15 @@ void aggiungi_ricetta(){
         strcpy(newIng->content.name, ingName);
         newIng->content.quantity = ingQuantity;
 
-        //Creazione ricetta
-        recipeList_node* newRecipe = (recipeList_node*)malloc(sizeof(recipeList_node));
-        newRecipe->content.name = (char*)malloc(strlen(name) + 1);
-        strcpy(newRecipe->content.name, name);
         insertIngredientList(&(newRecipe->content.ingHead), newIng);
-        
-        addToRecipeHT(newRecipe);
+
         status = scanf("%c", &eol);
     }while(eol != '\n');
 
     if(status == 0) printf("error\n");
 }
 
-void addToRecipeHT(recipeList_node* x){
+int addToRecipeHT(recipeList_node* x){
     unsigned int index = hash(x->content.name);
     int res = 0;
 
@@ -282,8 +276,8 @@ void addToRecipeHT(recipeList_node* x){
     //Collisione
     else res = addToBucketRecipe(x, index);
 
-    if(res == 0) printf("ignorato\n");
-    else printf("aggiunta\n");
+    if(res == 0) return 0;
+    else return 1;
 }
 
 //rifornimento
@@ -300,8 +294,8 @@ void rifornimento(){
         status = scanf("%s %d %d", ingName, &ingQuantity, &ingExpiration);
 
         //Creazione lotto
-        lotList_node* newItemHT = (lotList_node*)malloc(sizeof(lotList_node));
-        lotTree_node* newLot = (lotTree_node*)malloc(sizeof(lotTree_node));
+        stockList_node* newItemHT = (stockList_node*)malloc(sizeof(stockList_node));
+        lotList_node* newLot = (lotList_node*)malloc(sizeof(lotList_node));
         newLot->content.name = (char*)malloc(strlen(ingName) + 1);
         strcpy(newLot->content.name, ingName);
         newLot->content.quantity = ingQuantity;
@@ -319,7 +313,7 @@ void rifornimento(){
     if(status == 0) printf("error\n");
 }
 
-void addToStockHT(lotList_node* x){
+void addToStockHT(stockList_node* x){
     unsigned int index = hash(x->lot->content.name);
 
     if(stockHashTable[index] == NULL) stockHashTable[index] = x;
@@ -339,136 +333,19 @@ unsigned int hash(char* x){
     return res % HASHTABLE_SIZE;
 }
 
-//Funzioni per albero di lotti
-void insertLot(lotTree_node** head, lotTree_node* newNode){
-    lotTree_node* x = *head;
-    lotTree_node* y = NULL;
-
-    while(x != NULL){
-        y = x;
-        if(newNode->expiration < x->expiration) x = x->left;
-        else if(newNode->expiration == x->expiration){
-            x->content.quantity += newNode->content.quantity;
-            free(newNode);
-            return;
-        }
-        else x = x->right;
-    }
-
-    newNode->parent = y;
-    if(y == NULL){
-        *head = newNode;        //Albero vuoto
-    }
-    else if(newNode->expiration < y->expiration) y->left = newNode;
-    else y->right = newNode;
-    newNode->color = 'r';
-    insertLotFixUp(head, newNode);
-}
-
-void insertLotFixUp(lotTree_node** head, lotTree_node* node){
-    if(node == (*head)){
-        node->color = 'b';
-        return;
-    }
-
-    lotTree_node* x = node->parent;          //Padre
-    lotTree_node* y = NULL;                  //Nonno
-    lotTree_node* z = NULL;                  //Zio
-    
-    if(x != NULL) y = x->parent;
-
-    if(x->color == 'r'){
-        if(y != NULL && x == y->left){
-            z = y->right;           //y è lo zio di node
-            //CASO 1
-            if(z != NULL && z->color == 'r'){
-                x->color = 'b';
-                z->color = 'b';
-                y->color = 'r';
-                insertLotFixUp(head, y);
-            }
-            //CASO 2
-            else{
-                if(node == x->right){
-                    node = x;
-                    leftRotateLot(head, node);
-                    x = node->parent;
-                    y = x->parent;
-                }
-                //CASO 3
-                x->color = 'b';
-                x->parent->color = 'r';
-                rightRotateLot(head, x->parent);
-            }
-        }
-        else{
-            z = y->left;           //y è lo zio di node
-            //CASO 1
-            if(z != NULL && z->color == 'r'){
-                x->color = 'b';
-                z->color = 'b';
-                y->color = 'r';
-                insertLotFixUp(head, y);
-            }
-            //CASO 2
-            else{
-                if(node == x->left){
-                    node = x;
-                    rightRotateLot(head, node);
-                    x = node->parent;
-                    y = x->parent;
-                }
-                //CASO 3
-                x->color = 'b';
-                x->parent->color = 'r';
-                leftRotateLot(head, x->parent);
-            }
-        }
-    }
-}
-
-void leftRotateLot(lotTree_node** head, lotTree_node* node){
-    lotTree_node* y = node->right;
-    node->right = y->left;
-
-    if(y->left != NULL){
-        y->left->parent = node;
-    }
-    y->parent = node->parent;
-    if(node->parent == NULL) *head = y;
-    else if(node == node->parent->left) node->parent->left = y;
-    else node->parent->right = y;
-    y->left = node;
-    node->parent = y;
-}
-
-void rightRotateLot(lotTree_node** head, lotTree_node* node){
-    lotTree_node* y = node->left;
-    node->left = y->right;
-    
-    if(y->right != NULL){
-        y->right->parent = node;
-    }
-    y->parent = node->parent;
-    if(node->parent == NULL) *head = y;
-    else if(node == node->parent->right) node->parent->right = y;
-    else node->parent->left = y;
-    y->right = node;
-    node->parent = y;
-}
-
 //Funzioni per stockHashTable
-void addToBucketStock(lotList_node* x, unsigned int index){
-    lotList_node* curr = stockHashTable[index];
+void addToBucketStock(stockList_node* x, unsigned int index){
+    stockList_node* curr = stockHashTable[index];
 
     while(curr){
         if(strcmp(x->lot->content.name, curr->lot->content.name) == 0){
-            //Trvoato ingrediente in magazzino, aggiungere lotto
-            insertLot(&(curr->lot), x->lot);
+            //Trvoato ingrediente in magazzino, aggiungere lotto alla lista dei lotti
+            insertLotInOrder(&(curr->lot), x->lot);
             return;
         }
         curr = curr->next;
     }
+
     //Ingrediente non trovato, aggiungo nuovo ingrediente nella bucketList
     x->next = stockHashTable[index];
     stockHashTable[index] = x;
@@ -490,6 +367,7 @@ int addToBucketRecipe(recipeList_node* x, unsigned int index){
     return 1;
 }
 
+//Funzioni per liste di ingredienti
 void insertIngredientList(ingredientList_node** head, ingredientList_node* x){
     if(*head == NULL){
         *head = x;
@@ -498,4 +376,20 @@ void insertIngredientList(ingredientList_node** head, ingredientList_node* x){
 
     x->next = *head;
     *head = x;
+}
+
+//Funzioni per liste di lotti
+void insertLotInOrder(lotList_node** head, lotList_node* x) {
+    if (*head == NULL || x->expiration <= (*head)->expiration) {
+        x->next = *head;
+        *head = x;
+        return;
+    }
+
+    lotList_node* curr = *head;
+
+    while (curr && curr->next && x->expiration > curr->next->expiration) curr = curr->next;
+
+    x->next = curr->next;
+    curr->next = x;
 }
