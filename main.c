@@ -45,7 +45,7 @@ struct order{
     char* recipeName;
     unsigned int arrivalTime;
     unsigned int requestedQuantity;
-    unsigned int weigth;
+    unsigned int weight;
 };
 
 //Struct per la costruzione delle strutture dati
@@ -81,6 +81,8 @@ struct orderList_node{
     order content;
     orderList_node* next;
     ingredientList_node* ingList;
+    unsigned int weight;
+    unsigned int suspended;
 };
 
 //Configurazione corriere
@@ -97,7 +99,7 @@ void                    ordine();
 void                    rimuovi_ricetta();
 
 //Funzioni ausiliarie
-void                    fullfillOrder(orderList_node*);
+int                     fullfillOrder(orderList_node*);
 void                    useLots(orderList_node*, lotListRef_node*);
 
 //Funzione di hash
@@ -126,6 +128,8 @@ void                    insertLotRefInTail(lotListRef_node**, lotListRef_node*);
 
 //Funzioni per liste di ordini
 void                    insertOrderTail(orderList_node**, orderList_node*);
+void                    insertCompletedOrder(orderList_node**, orderList_node*);
+void                    removeNode(orderList_node**, orderList_node*, orderList_node*);
 
 //Utilities
 void                    elaborateCommand(char[]);
@@ -164,6 +168,11 @@ int main(){
     }while(status == 1);
 
     //Stampe per verifiche
+    printf("Ordini in sospeso:\n");
+    printOrderList(suspendendOrders);
+    printf("Ordini completati:\n");
+    printOrderList(completedOrders);
+    printf("\n");
 
     //Free della memoria usata per le strutture dati statiche
     free(recipeHashTable);
@@ -285,7 +294,7 @@ void printOrderList(orderList_node* head){
         return;
     }
 
-    printf("-> %s %d %d", head->content.recipeName, head->content.requestedQuantity, head->content.arrivalTime);
+    printf("-> %s %d A=%d - W=%d", head->content.recipeName, head->content.requestedQuantity, head->content.arrivalTime, head->weight);
     printOrderList(head->next);
 }
 
@@ -380,6 +389,18 @@ void rifornimento(){
 
     printf("rifornito\n");
 
+    orderList_node* curr = suspendendOrders;
+    orderList_node* prev = NULL;
+    while(curr){
+        orderList_node* next = curr->next; // Salva il prossimo nodo prima di rimuovere curr
+        int res = fullfillOrder(curr);
+
+        if (res == 1) removeNode(&suspendendOrders, prev, curr);
+        else prev = curr;
+
+        curr = next;
+    }
+
     if(status == 0) printf("error\n");
 }
 
@@ -412,43 +433,48 @@ void ordine(){
     if(status == 0) printf("error\n");
 }
 
-void fullfillOrder(orderList_node* x){
+int fullfillOrder(orderList_node* x){
     //Cerca ricetta
     recipe* orderRecipe = getRecipe(x->content.recipeName);
     
     if(orderRecipe == NULL){
-        printf("rifiutato\n");
-        return;
+        if(x->suspended == 0) printf("rifiutato\n");
+        return 0;
     }
 
-    printf("accettato\n");
+    if(x->suspended == 0) printf("accettato\n");
     //Ricetta trovata
     x->ingList = orderRecipe->ingHead;
     ingredientList_node*    ingList = orderRecipe->ingHead;
     lotListRef_node*        lots = NULL;  //Lista di riferimenti con i lotti da usare
+    unsigned int            weight = 0;
+    unsigned int            requestedQuantity = x->content.requestedQuantity;
     
     while(ingList){
         stockList_node* stock = getStock(ingList->content.name);
         if(stock == NULL){
             //Lista ordini in sospeso
-            insertOrderTail(&suspendendOrders, x);
-            return;
+            if(x->suspended == 0) insertOrderTail(&suspendendOrders, x);
+            x->suspended = 1;
+            return 0;
         }
 
         //Primo lotto non scaduto
         lotList_node* lot = getUsableLot(stock->lot);
         if(lot == NULL){
             //Lista ordini in sospeso
-            insertOrderTail(&suspendendOrders, x);
-            return;
+            if(x->suspended == 0) insertOrderTail(&suspendendOrders, x);
+            x->suspended = 1;
+            return 0;
         }
 
         //Controlla che ci siano effettivamente tutti gli ingredienti per soddisfare l'ordine
         int availability = checkAvailability(lot, x->content.requestedQuantity * ingList->content.quantity);
         if(availability == 0){
             //Lista ordini in sospeso
-            insertOrderTail(&suspendendOrders, x);
-            return;
+            if(x->suspended == 0) insertOrderTail(&suspendendOrders, x);
+            x->suspended = 1;
+            return 0;
         }
 
         //Salvo il primo lotto usabile per dopo
@@ -457,11 +483,27 @@ void fullfillOrder(orderList_node* x){
 
         insertLotRefInTail(&lots, lotRef);
 
+        weight += ingList->content.quantity * requestedQuantity;
+
         ingList = ingList->next;
     }
 
+    x->weight = weight;
+
     //Uso i lotti
     useLots(x, lots);
+
+    orderList_node* xCompleted = (orderList_node*)malloc(sizeof(orderList_node));
+    xCompleted->content = x->content;
+    xCompleted->ingList = x->ingList;
+    xCompleted->suspended = 0;
+    xCompleted->weight = x->weight;
+
+    insertCompletedOrder(&completedOrders, xCompleted); //Aggiunge l'ordine alla lista degli ordini completati
+
+    if(x->suspended == 0) free(x); //Se l'ordine non era sospeso allora basta liberare x, altrimenti va gestito altrove
+
+    return 1;
 }
 
 //TODO - Eliminare lotti vuoti?
@@ -614,7 +656,7 @@ void insertLotInOrder(lotList_node** head, lotList_node* x) {
 
 lotList_node* getUsableLot(lotList_node* head){
     while(head){
-        if(head->expiration >= time) return head;
+        if(head->expiration > time) return head;
         head = head->next;
     }
 
@@ -659,4 +701,31 @@ void insertOrderTail(orderList_node** head, orderList_node* x){
     }
 
     curr->next = x;
+}
+
+void insertCompletedOrder(orderList_node** head, orderList_node* x){
+    if (*head == NULL || x->weight > (*head)->weight || (x->weight == (*head)->weight && x->content.arrivalTime < (*head)->content.arrivalTime)){
+        x->next = *head;
+        *head = x;
+        return;
+    }
+
+    orderList_node* curr = *head;
+    while (curr->next != NULL && (x->weight < curr->next->weight || (x->weight == curr->next->weight && x->content.arrivalTime > curr->next->content.arrivalTime))){
+        curr = curr->next;
+    }
+
+    x->next = curr->next;
+    curr->next = x;
+}
+
+void removeNode(orderList_node** head, orderList_node* prev, orderList_node* x){
+    if (prev == NULL) {
+        *head = (*head)->next;
+    }
+    else{
+        prev->next = x->next;
+    }
+
+    free(x);
 }
