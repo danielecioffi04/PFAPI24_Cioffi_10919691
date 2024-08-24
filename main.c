@@ -109,6 +109,7 @@ unsigned int            hash(char*);
 int                     addToRecipeHT(recipeList_node*);
 int                     addToBucketRecipe(recipeList_node*, unsigned int);
 recipe*                 getRecipe(char*);
+void                    removeRecipeNode(recipeList_node**, recipeList_node*, recipeList_node*);
 
 //Funzioni tabella hash magazzino
 void                    addToStockHT(stockList_node*);
@@ -129,7 +130,8 @@ void                    insertLotRefInTail(lotListRef_node**, lotListRef_node*);
 //Funzioni per liste di ordini
 void                    insertOrderTail(orderList_node**, orderList_node*);
 void                    insertCompletedOrder(orderList_node**, orderList_node*);
-void                    removeNode(orderList_node**, orderList_node*, orderList_node*);
+void                    removeOrderNode(orderList_node**, orderList_node*, orderList_node*);
+unsigned int            findRecipeOrder(char*);
 
 //Utilities
 void                    elaborateCommand(char[]);
@@ -395,7 +397,7 @@ void rifornimento(){
         orderList_node* next = curr->next; // Salva il prossimo nodo prima di rimuovere curr
         int res = fullfillOrder(curr);
 
-        if (res == 1) removeNode(&suspendendOrders, prev, curr);
+        if (res == 1) removeOrderNode(&suspendendOrders, prev, curr);
         else prev = curr;
 
         curr = next;
@@ -545,6 +547,39 @@ void rimuovi_ricetta(){
     char name[ARG_LENGTH];
 
     status = scanf("%s\n", name);
+
+    int index = hash(name);
+    if(recipeHashTable[index] == NULL){
+        printf("non presente\n");
+        return;
+    }
+
+    recipeList_node* curr = recipeHashTable[index];
+    recipeList_node* prev = NULL;
+    while(curr){
+        recipeList_node* next = curr->next;
+        
+        if(strcmp(curr->content.name, name) == 0){
+            if(findRecipeOrder(name) == 0){
+                printf("rimossa\n");
+                removeRecipeNode(&recipeHashTable[index], prev, curr);
+            }
+            else printf("ordini in sospeso %s\n", name);
+            
+            printf("Ordini sospesi\n");
+            printOrderList(suspendendOrders);
+            printf("Ordini completati\n");
+            printOrderList(completedOrders);
+            printf("\n");
+            return;
+        }
+        else prev = curr;
+
+        curr = next;
+    }
+
+    printf("non presente\n");
+
     if(status == 0) printf("error\n");
 }
 
@@ -625,6 +660,17 @@ recipe* getRecipe(char* x){
     }
 
     return NULL;
+}
+
+void removeRecipeNode(recipeList_node** head, recipeList_node* prev, recipeList_node* x){
+    if (prev == NULL) {
+        *head = (*head)->next;
+    }
+    else{
+        prev->next = x->next;
+    }
+
+    free(x);
 }
 
 //Funzioni per liste di ingredienti
@@ -719,7 +765,7 @@ void insertCompletedOrder(orderList_node** head, orderList_node* x){
     curr->next = x;
 }
 
-void removeNode(orderList_node** head, orderList_node* prev, orderList_node* x){
+void removeOrderNode(orderList_node** head, orderList_node* prev, orderList_node* x){
     if (prev == NULL) {
         *head = (*head)->next;
     }
@@ -728,4 +774,21 @@ void removeNode(orderList_node** head, orderList_node* prev, orderList_node* x){
     }
 
     free(x);
+}
+
+unsigned int findRecipeOrder(char* name){
+    orderList_node* suspendedCurr = suspendendOrders;
+    orderList_node* completedCurr = completedOrders;
+
+    while(suspendedCurr){
+        if(strcmp(suspendedCurr->content.recipeName, name) == 0) return 1;
+        suspendedCurr = suspendedCurr->next;
+    }
+
+    while(completedCurr){
+        if(strcmp(completedCurr->content.recipeName, name) == 0) return 1;
+        completedCurr = completedCurr->next;
+    }
+
+    return 0;
 }
