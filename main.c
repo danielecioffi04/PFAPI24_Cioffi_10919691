@@ -94,6 +94,7 @@ struct courier_config{
 void                    aggiungi_ricetta();
 void                    rifornimento();
 void                    ordine();
+void                    rimuovi_ricetta();
 
 //Funzioni ausiliarie
 void                    fullfillOrder(orderList_node*);
@@ -190,6 +191,8 @@ void elaborateCommand(char command[]){
         
         case 1:
             //Rimuovi_ricetta
+            rimuovi_ricetta();
+            time++;
             break;
 
         case 2:
@@ -306,6 +309,10 @@ void aggiungi_ricetta(){
     if(res == 0){
         printf("ignorato\n");
         free(newRecipe);
+        do{
+            status = scanf("%s %d", ingName, &ingQuantity);
+            status = scanf("%c", &eol);
+        } while (eol != '\n');
         return;        //Ricetta già presente
     }
 
@@ -391,7 +398,7 @@ void ordine(){
     char    orderRecipe[ARG_LENGTH];
     int     requestedQuantity;
 
-    status = scanf("%s %d\n", orderRecipe, &requestedQuantity);
+    status = scanf("%s %d", orderRecipe, &requestedQuantity);
 
     //Creazione ordine
     orderList_node* newOrder = (orderList_node*)malloc(sizeof(orderList_node));
@@ -488,6 +495,15 @@ void useLots(orderList_node* x, lotListRef_node* lot){
         }
         currIng = currIng->next;
     } 
+}
+
+//rimuovi_ricetta
+void rimuovi_ricetta(){
+    int status;
+    char name[ARG_LENGTH];
+
+    status = scanf("%s\n", name);
+    if(status == 0) printf("error\n");
 }
 
 //Funzione di hash
