@@ -97,6 +97,7 @@ void                    aggiungi_ricetta();
 void                    rifornimento();
 void                    ordine();
 void                    rimuovi_ricetta();
+void                    corriere();
 
 //Funzioni ausiliarie
 int                     fullfillOrder(orderList_node*);
@@ -123,15 +124,17 @@ void                    insertIngredientList(ingredientList_node**, ingredientLi
 void                    insertLotInOrder(lotList_node**, lotList_node*);
 int                     checkAvailability(lotList_node*, unsigned int);
 lotList_node*           getUsableLot(lotList_node*);
+void                    removeLotNode(lotList_node**, lotList_node*, lotList_node*);
 
 //Funzioni per liste di riferimenti a lotti
 void                    insertLotRefInTail(lotListRef_node**, lotListRef_node*);
 
 //Funzioni per liste di ordini
 void                    insertOrderTail(orderList_node**, orderList_node*);
-void                    insertCompletedOrder(orderList_node**, orderList_node*);
+void                    insertCourierOrder(orderList_node**, orderList_node*);
 void                    removeOrderNode(orderList_node**, orderList_node*, orderList_node*);
 unsigned int            findRecipeOrder(char*);
+void                    insertOrderByArrival(orderList_node**, orderList_node*);
 
 //Utilities
 void                    elaborateCommand(char[]);
@@ -169,12 +172,8 @@ int main(){
         if(status == 1) elaborateCommand(command);
     }while(status == 1);
 
+    corriere();
     //Stampe per verifiche
-    printf("Ordini in sospeso:\n");
-    printOrderList(suspendendOrders);
-    printf("Ordini completati:\n");
-    printOrderList(completedOrders);
-    printf("\n");
 
     //Free della memoria usata per le strutture dati statiche
     free(recipeHashTable);
@@ -192,6 +191,10 @@ void elaborateCommand(char command[]){
         else commandID = ADD_ING_ID;
     }
     else commandID = ADD_ORDER_ID;
+
+    if(time % courierConfig.clock == 0 && time != 0){
+        corriere();
+    }
 
     switch (commandID){
         case 0:
@@ -296,7 +299,7 @@ void printOrderList(orderList_node* head){
         return;
     }
 
-    printf("-> %s %d A=%d - W=%d", head->content.recipeName, head->content.requestedQuantity, head->content.arrivalTime, head->weight);
+    printf("-> %s %d S=%d A=%d - W=%d\n", head->content.recipeName, head->content.requestedQuantity, head->suspended, head->content.arrivalTime, head->weight);
     printOrderList(head->next);
 }
 
@@ -429,6 +432,7 @@ void ordine(){
     strcpy(newOrder->content.recipeName, orderRecipe);
     newOrder->content.arrivalTime = time;
     newOrder->content.requestedQuantity = requestedQuantity;
+    newOrder->suspended = 0;
 
     fullfillOrder(newOrder);
 
@@ -451,12 +455,15 @@ int fullfillOrder(orderList_node* x){
     lotListRef_node*        lots = NULL;  //Lista di riferimenti con i lotti da usare
     unsigned int            weight = 0;
     unsigned int            requestedQuantity = x->content.requestedQuantity;
-    
+
     while(ingList){
         stockList_node* stock = getStock(ingList->content.name);
         if(stock == NULL){
             //Lista ordini in sospeso
-            if(x->suspended == 0) insertOrderTail(&suspendendOrders, x);
+            if(x->suspended == 0){
+                x->next = NULL;
+                insertOrderTail(&suspendendOrders, x);
+            }
             x->suspended = 1;
             return 0;
         }
@@ -465,7 +472,10 @@ int fullfillOrder(orderList_node* x){
         lotList_node* lot = getUsableLot(stock->lot);
         if(lot == NULL){
             //Lista ordini in sospeso
-            if(x->suspended == 0) insertOrderTail(&suspendendOrders, x);
+            if(x->suspended == 0){
+                x->next = NULL;
+                insertOrderTail(&suspendendOrders, x);
+            }
             x->suspended = 1;
             return 0;
         }
@@ -474,7 +484,10 @@ int fullfillOrder(orderList_node* x){
         int availability = checkAvailability(lot, x->content.requestedQuantity * ingList->content.quantity);
         if(availability == 0){
             //Lista ordini in sospeso
-            if(x->suspended == 0) insertOrderTail(&suspendendOrders, x);
+            if(x->suspended == 0){
+                x->next = NULL;
+                insertOrderTail(&suspendendOrders, x);
+            }
             x->suspended = 1;
             return 0;
         }
@@ -500,10 +513,14 @@ int fullfillOrder(orderList_node* x){
     xCompleted->ingList = x->ingList;
     xCompleted->suspended = 0;
     xCompleted->weight = x->weight;
+    xCompleted->next = NULL;
 
-    insertCompletedOrder(&completedOrders, xCompleted); //Aggiunge l'ordine alla lista degli ordini completati
+    if(x->suspended == 0) insertOrderTail(&completedOrders, xCompleted); //Aggiunge l'ordine alla lista degli ordini completati
+    else insertOrderByArrival(&completedOrders, xCompleted);
 
-    if(x->suspended == 0) free(x); //Se l'ordine non era sospeso allora basta liberare x, altrimenti va gestito altrove
+    if(x->suspended == 0){
+        free(x); //Se l'ordine non era sospeso allora basta liberare x, altrimenti va gestito altrove
+    }
 
     return 1;
 }
@@ -564,13 +581,7 @@ void rimuovi_ricetta(){
                 printf("rimossa\n");
                 removeRecipeNode(&recipeHashTable[index], prev, curr);
             }
-            else printf("ordini in sospeso %s\n", name);
-            
-            printf("Ordini sospesi\n");
-            printOrderList(suspendendOrders);
-            printf("Ordini completati\n");
-            printOrderList(completedOrders);
-            printf("\n");
+            else printf("ordini in sospeso\n");
             return;
         }
         else prev = curr;
@@ -581,6 +592,44 @@ void rimuovi_ricetta(){
     printf("non presente\n");
 
     if(status == 0) printf("error\n");
+}
+
+//corriere
+void corriere(){
+    if(completedOrders == NULL) printf("camioncino vuoto\n");
+
+    orderList_node* toshipOrders = NULL;
+    orderList_node* curr = completedOrders;
+    int remainingWeight = courierConfig.maxQuantity;
+
+    //Creazione lista degli ordini da spedire e rimozione ordini
+    while(curr && remainingWeight > 0){
+        if(curr->weight <= remainingWeight){
+            orderList_node* newNode = (orderList_node*)malloc(sizeof(orderList_node));
+            newNode->content = curr->content;
+            newNode->weight = curr->weight;
+            newNode->next = NULL;
+            insertCourierOrder(&toshipOrders, newNode);
+
+            remainingWeight -= curr->weight;
+            orderList_node* tmp = curr;
+            curr = curr->next;
+            completedOrders = curr;
+            free(tmp);
+        }
+        else{
+            break;
+        }
+    }
+
+    //Caricamento ordini sul corriere
+    curr = toshipOrders;
+    while(curr){
+        orderList_node* tmp = curr;
+        printf("%d %s %d\n", curr->content.arrivalTime, curr->content.recipeName, curr->content.requestedQuantity);
+        curr = curr->next;
+        free(tmp);
+    }
 }
 
 //Funzione di hash
@@ -686,18 +735,40 @@ void insertIngredientList(ingredientList_node** head, ingredientList_node* x){
 
 //Funzioni per liste di lotti -- TODO: RIMUOVERE LOTTI SCADUTI QUANDO SI INCONTRANO
 void insertLotInOrder(lotList_node** head, lotList_node* x) {
+    lotList_node* curr = *head;
+    lotList_node* prev = NULL;
+
     if (*head == NULL || x->expiration <= (*head)->expiration) {
         x->next = *head;
         *head = x;
         return;
     }
 
-    lotList_node* curr = *head;
-
-    while (curr && curr->next && x->expiration > curr->next->expiration) curr = curr->next;
+    while (curr && curr->next && x->expiration > curr->next->expiration){
+        if(curr->expiration < time || curr->content.quantity == 0){
+            removeLotNode(head, prev, curr);
+            if (prev == NULL) curr = *head;
+            else curr = prev->next; 
+        }
+        else{
+            prev = curr;
+            curr = curr->next;
+        }
+    }
 
     x->next = curr->next;
     curr->next = x;
+}
+
+void removeLotNode(lotList_node** head, lotList_node* prev, lotList_node* x){
+    if (prev == NULL) {
+        *head = (*head)->next;
+    }
+    else{
+        prev->next = x->next;
+    }
+
+    free(x);
 }
 
 lotList_node* getUsableLot(lotList_node* head){
@@ -723,6 +794,8 @@ int checkAvailability(lotList_node* x, unsigned int requestedQuantity){
 
 //Funzioni per liste di riferimenti a lotti
 void insertLotRefInTail(lotListRef_node** head, lotListRef_node* x){
+    x->next = NULL;
+
     if(*head == NULL){
         *head = x;
         return;
@@ -749,7 +822,23 @@ void insertOrderTail(orderList_node** head, orderList_node* x){
     curr->next = x;
 }
 
-void insertCompletedOrder(orderList_node** head, orderList_node* x){
+void insertOrderByArrival(orderList_node** head, orderList_node* x){
+    if (*head == NULL || x->content.arrivalTime < (*head)->content.arrivalTime){
+        x->next = *head;
+        *head = x;
+        return;
+    }
+
+    orderList_node* curr = *head;
+    while (curr->next != NULL &&  x->content.arrivalTime > curr->next->content.arrivalTime){
+        curr = curr->next;
+    }
+
+    x->next = curr->next;
+    curr->next = x;
+}
+
+void insertCourierOrder(orderList_node** head, orderList_node* x){
     if (*head == NULL || x->weight > (*head)->weight || (x->weight == (*head)->weight && x->content.arrivalTime < (*head)->content.arrivalTime)){
         x->next = *head;
         *head = x;
