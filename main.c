@@ -27,6 +27,7 @@ typedef struct ingredientList_node ingredientList_node;
 typedef struct recipeList_node recipeList_node;
 typedef struct stockList_node stockList_node;
 typedef struct lotList_node lotList_node;
+typedef struct orderList_node orderList_node;
 
 //Struct per gli elementi della pasticceria
 struct ingredient{
@@ -54,16 +55,28 @@ struct lotList_node{
     ingredient content;
     int expiration;
     lotList_node* next;
+    lotList_node* prev;
 };
 
 struct stockList_node{
     lotList_node* lot;
     stockList_node* next;
+    stockList_node* prev;
 };
 
 struct recipeList_node{
     recipe content;
     recipeList_node* next;
+    recipeList_node* prev;
+};
+
+struct orderList_node{
+    order content;
+    int expiration;
+    int weight;
+    int suspended;
+    orderList_node* next;
+    orderList_node* prev;
 };
 
 //Configurazione corriere
@@ -75,12 +88,18 @@ struct courier_config{
 //------------------------------------------------------------------------------------------------------------------------------------
 //Prototipi
 void                    aggiungi_ricetta();
+void                    rimuovi_ricetta();
 void                    rifornimento();
+void                    ordine();
+
 
 //Funzioni tabella hash ricette
 int                     addToRecipeHT(recipeList_node*);
 int                     addToBucketRecipe(recipeList_node*, unsigned int);
 unsigned int            hash(char*);
+void                    removeRecipe(recipeList_node**);
+void                    removeRecipeIngList(ingredientList_node**);
+recipeList_node*        findRecipe(char*, unsigned int);
 
 //Funzioni tabella hash magazzino
 void                    addToStockHT(stockList_node*);
@@ -94,6 +113,7 @@ void                    insertLotInOrder(lotList_node**, lotList_node*);
 
 //Utilities
 void                    elaborateCommand(char[]);
+void                    printAllRecipeEntriesHT();
 void                    printRecipeHT();
 void                    printRecipeList(recipeList_node*);
 void                    printIngredientList(ingredientList_node*);
@@ -107,8 +127,9 @@ void                    printLotList(lotList_node*);
 //Variabili globali
 courier_config      courierConfig;              //Configurazioni del corriere
 recipeList_node**   recipeHashTable;            //HashTable per ricette
-stockList_node**      stockHashTable;             //HashTable in cui elemento è un albero di lotti ordinati per data di scadenza
+stockList_node**    stockHashTable;             //HashTable in cui elemento è un albero di lotti ordinati per data di scadenza
 int                 time = 0;                   //Istante di tempo attuale
+
 
 //==============================================================================================================================
 int main(){
@@ -118,6 +139,11 @@ int main(){
     //Inizializzazione strutture dati statiche
     recipeHashTable = (recipeList_node**)malloc(HASHTABLE_SIZE * sizeof(recipeList_node*));
     stockHashTable = (stockList_node**)malloc(HASHTABLE_SIZE * sizeof(stockList_node*));
+
+    for(int i=0 ; i<HASHTABLE_SIZE ; i++){
+        recipeHashTable[i] = NULL;
+        stockHashTable[i] = NULL;
+    }
     
     //Lettura dell'input
     status = scanf("%d %d\n", &courierConfig.clock, &courierConfig.maxQuantity); //Lettura della configurazione del corriere
@@ -127,11 +153,6 @@ int main(){
     }while(status == 1);
 
     //Stampe per verifiche
-    printStockHT();
-
-    //Free della memoria usata per le strutture dati statiche
-    free(recipeHashTable);
-    free(stockHashTable);
 }
 //==============================================================================================================================
 
@@ -154,6 +175,7 @@ void elaborateCommand(char command[]){
         
         case 1:
             //Rimuovi_ricetta
+            rimuovi_ricetta();
             break;
 
         case 2:
@@ -163,11 +185,24 @@ void elaborateCommand(char command[]){
 
         case 3:
             //Ordine
+            ordine();
             break;
         
         default:
             break;
     }   
+}
+
+void printAllRecipeEntriesHT(){
+    int i;
+    for(i = 0 ; i < HASHTABLE_SIZE ; i++){
+        recipeList_node* curr = recipeHashTable[i];
+        while(curr){
+            printf("HT[%d] = %p -> ", i, curr);
+            curr = curr->next;
+        }
+        printf("\n");
+    }
 }
 
 void printRecipeHT(){
@@ -177,17 +212,17 @@ void printRecipeHT(){
             printf("HT[%d] ", i);
             printRecipeList(recipeHashTable[i]);
             printf("\n");
-            fflush(stdout);
         }
     }
 }
 
 void printRecipeList(recipeList_node* x){
     if(x == NULL)return;
+    printf("%p ", x);
     printf("-> %s ", x->content.name);
     printf("(INGREDIENTI: ");
     printIngredientList(x->content.ingHead);
-    printf(")");
+    printf(") ");
     printRecipeList(x->next);
 }
 
@@ -239,6 +274,9 @@ void aggiungi_ricetta(){
     recipeList_node* newRecipe = (recipeList_node*)malloc(sizeof(recipeList_node));
     newRecipe->content.name = (char*)malloc(strlen(name) + 1);
     strcpy(newRecipe->content.name, name);
+    newRecipe->prev = NULL;
+    newRecipe->next = NULL;
+    newRecipe->content.ingHead = NULL;
 
     int res = addToRecipeHT(newRecipe);
     if(res == 0){
@@ -250,12 +288,15 @@ void aggiungi_ricetta(){
     do{
         //Lettura ingredienti
         status = scanf("%s %d", ingName, &ingQuantity);
-        
+
         //Creazione ingrediente
+
         ingredientList_node* newIng = (ingredientList_node*)malloc(sizeof(ingredientList_node));
+
         newIng->content.name = (char*)malloc(strlen(ingName) + 1);
         strcpy(newIng->content.name, ingName);
         newIng->content.quantity = ingQuantity;
+        newIng->next = NULL;
 
         insertIngredientList(&(newRecipe->content.ingHead), newIng);
 
@@ -276,8 +317,53 @@ int addToRecipeHT(recipeList_node* x){
     //Collisione
     else res = addToBucketRecipe(x, index);
 
-    if(res == 0) return 0;
-    else return 1;
+    if(res == 0){
+        free(x->content.name);
+        free(x);
+    }
+
+    return res;
+}
+
+//rimuovi_ricetta DA FINIRE
+void rimuovi_ricetta(){
+    int     status;
+    char    name[ARG_LENGTH];
+
+    status = scanf("%s\n", name);
+
+    //Rimozioni ricetta
+    unsigned int index = hash(name);
+    recipeList_node* recipe = findRecipe(name, index);
+    if(recipe){
+        //TODO - Controllare che la ricetta non abbia ordini in sospeso/completati da spedire
+        if(recipe->next == NULL && recipe->prev == NULL) recipeHashTable[index] = NULL; //Sto eliminando l'ultimo elemento della bucketlist
+        removeRecipe(&recipe);
+        printf("rimossa\n");
+    }
+    else{
+        printf("non presente\n");
+    }
+
+
+    /* TESTING
+    recipeList_node* curr;
+
+    for(int i=0 ; i<HASHTABLE_SIZE ; i++){
+        if(recipeHashTable[i]){
+            printf("%d\n", i);
+            curr = recipeHashTable[i];
+            while(curr){
+                recipeList_node* next = curr->next; 
+                removeRecipe(&curr);
+                curr = next;
+            }
+            recipeHashTable[i] = NULL;
+        }
+    }
+    */
+
+    if(status == 0) printf("Error\n");
 }
 
 //rifornimento
@@ -321,6 +407,18 @@ void addToStockHT(stockList_node* x){
     else addToBucketStock(x, index);
 }
 
+//ordine
+void ordine(){
+    int     status;
+    
+    char    recipeName[ARG_LENGTH];
+    int     requestedQuantity;
+
+    status = scanf("%s %d", recipeName, &requestedQuantity);
+
+    if(status == 0) printf("Error\n");
+}
+
 //Funzione di hash
 unsigned int hash(char* x){
     unsigned int res = 0;
@@ -333,13 +431,13 @@ unsigned int hash(char* x){
     return res % HASHTABLE_SIZE;
 }
 
-//Funzioni per stockHashTable
+//Funzioni per MAGAZZINO (STOCKS)
 void addToBucketStock(stockList_node* x, unsigned int index){
     stockList_node* curr = stockHashTable[index];
 
     while(curr){
         if(strcmp(x->lot->content.name, curr->lot->content.name) == 0){
-            //Trvoato ingrediente in magazzino, aggiungere lotto alla lista dei lotti
+            //Trovato ingrediente in magazzino, aggiungere lotto alla lista dei lotti
             insertLotInOrder(&(curr->lot), x->lot);
             return;
         }
@@ -351,20 +449,71 @@ void addToBucketStock(stockList_node* x, unsigned int index){
     stockHashTable[index] = x;
 }
 
-//Funzioni per recipeHashTable
+//Funzioni per RICETTE
 int addToBucketRecipe(recipeList_node* x, unsigned int index){
     recipeList_node* curr = recipeHashTable[index];
-    
+
     while(curr){
         if(strcmp(curr->content.name, x->content.name) == 0){
+            //Trovata ricetta con stesso nome
             return 0;
         }
         curr = curr->next;
     }
 
+    //Inserimento in testa
+    x->prev = NULL;
     x->next = recipeHashTable[index];
+    recipeHashTable[index]->prev = x;
     recipeHashTable[index] = x;
+
     return 1;
+}
+
+void removeRecipe(recipeList_node** x){
+    recipeList_node* tmp = (*x);
+
+    if(*x == NULL) return;
+
+    //Siamo in testa
+    if((*x)->prev == NULL){
+        (*x) = (*x)->next;
+        if(*x) (*x)->prev = NULL;
+        removeRecipeIngList(&(tmp->content.ingHead));
+        free(tmp->content.name);
+        free(tmp);
+        return;
+    }
+
+    //Non siamo in testa
+    (*x)->prev->next = (*x)->next;
+    if((*x)->next) (*x)->next->prev = (*x)->prev;
+    removeRecipeIngList(&(tmp->content.ingHead));
+    free(tmp->content.name);
+    free(tmp);
+}
+
+void removeRecipeIngList(ingredientList_node** x){
+    ingredientList_node* curr = *x;
+
+    while(curr){
+        ingredientList_node* next = curr->next;
+        free(curr->content.name);
+        free(curr);
+        curr = next;
+    }
+}
+
+recipeList_node* findRecipe(char* x, unsigned int index){
+    if(recipeHashTable[index] == NULL) return NULL;
+
+    recipeList_node* curr = recipeHashTable[index];
+    while(curr){
+        if(strcmp(curr->content.name, x) == 0) return curr;
+        curr = curr->next;
+    }
+    return curr;
+
 }
 
 //Funzioni per liste di ingredienti
