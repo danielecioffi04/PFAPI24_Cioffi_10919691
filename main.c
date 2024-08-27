@@ -13,7 +13,7 @@
 #define ARG_LENGTH          256     //Lunghezza massima di un argomento (ingredienti, ricette...) di un comando preso in input
 
 //Dimensioni strutture dati statiche
-#define HASHTABLE_SIZE      5000
+#define HASHTABLE_SIZE      300
 
 //Altri parametri
 #define HASHPARAMETER       31  
@@ -171,11 +171,13 @@ void elaborateCommand(char command[]){
         case 0:
             //Aggiungi ricetta
             aggiungi_ricetta();
+            time++;
             break;
         
         case 1:
             //Rimuovi_ricetta
             rimuovi_ricetta();
+            time++;
             break;
 
         case 2:
@@ -216,13 +218,21 @@ void printRecipeHT(){
     }
 }
 
+void printRecipeBucket(char* x){
+    int index = hash(x);
+    printf("HT[%d]: ",index);
+    printRecipeList(recipeHashTable[index]);
+    printf("\n");
+}
+
 void printRecipeList(recipeList_node* x){
     if(x == NULL)return;
-    printf("%p ", x);
     printf("-> %s ", x->content.name);
+    /*
     printf("(INGREDIENTI: ");
     printIngredientList(x->content.ingHead);
     printf(") ");
+    */
     printRecipeList(x->next);
 }
 
@@ -278,6 +288,13 @@ void aggiungi_ricetta(){
     newRecipe->next = NULL;
     newRecipe->content.ingHead = NULL;
 
+    /*
+    if(time == 853 || time == 42 || time == 823 || hash(name) == 144){
+        printf("DEBUG: %s\n", name);
+        printRecipeBucket(name);
+    }
+    */
+
     int res = addToRecipeHT(newRecipe);
     if(res == 0){
         printf("ignorato\n");
@@ -302,6 +319,13 @@ void aggiungi_ricetta(){
 
         status = scanf("%c", &eol);
     }while(eol != '\n');
+
+    /*
+    if(time == 853 || time == 42 || time == 823 || hash(name) == 144){
+        printf("DEBUG: %s\n", name);
+        printRecipeBucket(name);
+    }
+    */
 
     if(status == 0) printf("error\n");
 }
@@ -453,19 +477,32 @@ void addToBucketStock(stockList_node* x, unsigned int index){
 int addToBucketRecipe(recipeList_node* x, unsigned int index){
     recipeList_node* curr = recipeHashTable[index];
 
-    while(curr){
+    while(curr && curr->next){
         if(strcmp(curr->content.name, x->content.name) == 0){
             //Trovata ricetta con stesso nome
             return 0;
         }
         curr = curr->next;
     }
+    if(strcmp(curr->content.name, x->content.name) == 0) return 0; //Trovata ricetta con stesso nome
 
-    //Inserimento in testa
-    x->prev = NULL;
-    x->next = recipeHashTable[index];
-    recipeHashTable[index]->prev = x;
-    recipeHashTable[index] = x;
+    //Lista vuota
+    if(curr == NULL){
+        recipeHashTable[index] = x;
+        return 1;
+    }
+
+    //Un solo elemento nella lista
+    if(curr->prev == NULL){
+        recipeHashTable[index]->next = x;
+        x->prev = recipeHashTable[index];
+        return 1;
+    }
+
+    //Siamo in coda
+    x->prev = curr->prev->next; //curr
+    x->next = NULL;
+    curr->next = x;
 
     return 1;
 }
@@ -479,18 +516,26 @@ void removeRecipe(recipeList_node** x){
     if((*x)->prev == NULL){
         (*x) = (*x)->next;
         if(*x) (*x)->prev = NULL;
+
+        tmp->next = NULL;
+        tmp->prev = NULL;
         removeRecipeIngList(&(tmp->content.ingHead));
         free(tmp->content.name);
         free(tmp);
+        tmp = NULL;
         return;
     }
 
     //Non siamo in testa
     (*x)->prev->next = (*x)->next;
     if((*x)->next) (*x)->next->prev = (*x)->prev;
+
+    tmp->next = NULL;
+    tmp->prev = NULL;
     removeRecipeIngList(&(tmp->content.ingHead));
     free(tmp->content.name);
     free(tmp);
+    tmp = NULL;
 }
 
 void removeRecipeIngList(ingredientList_node** x){
