@@ -91,7 +91,8 @@ void                    removeRecipe(recipeList_node**);
 void                    addToStockHT(stockList_node*);
 
 //Funzioni per liste di ingredienti
-void                    insertIngredientList(ingredientList_node**, ingredientList_node*);
+void                    insertIngredient(ingredientList_node**, ingredientList_node*);
+void                    removeIngredients(ingredientList_node**);
 
 //Funzioni per liste di lotti
 
@@ -101,6 +102,7 @@ void                    insertIngredientList(ingredientList_node**, ingredientLi
 void                    elaborateCommand(char[]);
 void                    printAllRecipes();
 void                    printRecipeList(recipeList_node*);
+void                    printIngredientList(ingredientList_node*);
 
 //------------------------------------------------------------------------------------------------------------------------------------
 
@@ -211,10 +213,20 @@ void printRecipeList(recipeList_node* x){
         printf("\n");
         return;
     }
-
     if(x->next && x->next->prev != x) printf(" (Errore) ");
-    printf("-> %s ", x->name);
+    printf("=> %s ", x->name);
+    printf(" (Ingredienti: ");
+    printIngredientList(x->ingList);
     printRecipeList(x->next);
+}
+
+void printIngredientList(ingredientList_node* x){
+    if(x == NULL){
+        printf(")");
+        return;
+    } 
+    printf("-> %s %d ", x->name, x->quantity);
+    printIngredientList(x->next);
 }
 
 //aggiungi_ricetta
@@ -247,6 +259,21 @@ void aggiungi_ricetta(){
     //Inserimento ricetta
     insertRecipe(x);
 
+    do{
+        status = scanf("%s %d", ingName, &quantity);
+
+        //Creazione ingrediente
+        ingredientList_node* y = (ingredientList_node*)malloc(sizeof(ingredientList_node));
+        y->name = (char*)malloc(strlen(ingName) + 1);
+        strcpy(y->name, ingName);
+        y->quantity = quantity;
+        y->next = NULL;
+
+        insertIngredient(&(x->ingList), y);
+
+        status = scanf("%c", &eol);
+    }while(eol != '\n');
+
     printf("accettato\n");
 
     if(status == 0) printf("error\n");
@@ -268,6 +295,17 @@ void insertRecipe(recipeList_node* x){
     recipeHashTable[index] = x;
 }
 
+void insertIngredient(ingredientList_node** head, ingredientList_node* x){
+    if(*head == NULL){
+        *head = x;
+        return;
+    }
+
+    //Inserimento in testa
+    x->next = *head;
+    *head = x;
+}
+
 recipeList_node* searchRecipe(char* x){
     unsigned int index = hash(x);
 
@@ -284,7 +322,7 @@ recipeList_node* searchRecipe(char* x){
 
 //rimuovi_ricetta
 void rimuovi_ricetta(){
-    
+
 }
 
 void removeRecipe(recipeList_node** x){
@@ -296,6 +334,7 @@ void removeRecipe(recipeList_node** x){
         if(*x) (*x)->prev = NULL;
 
         free(tmp->name);
+        removeIngredients(&(tmp->ingList));
         free(tmp);
         return;
     }
@@ -307,7 +346,17 @@ void removeRecipe(recipeList_node** x){
     if((*x)->next) (*x)->next->prev = prev;
 
     free(tmp->name);
+    removeIngredients(&(tmp->ingList));
     free(tmp);
+}
+
+void removeIngredients(ingredientList_node** x){
+    while(*x){
+        ingredientList_node* tmp = *x;
+        *x = (*x)->next;
+        free(tmp->name);
+        free(tmp);
+    }
 }
 
 //rifornimento
