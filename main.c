@@ -16,12 +16,9 @@
 #define HASHTABLE_SIZE      5000
 
 //Altri parametri
-#define HASHPARAMETER       31  
+#define HASHPARAMETER       47  
 
 //Forward declaration struct
-typedef struct ingredient ingredient;
-typedef struct recipe recipe;
-typedef struct order order;
 typedef struct courier_config courier_config;
 typedef struct ingredientList_node ingredientList_node;
 typedef struct recipeList_node recipeList_node;
@@ -29,52 +26,42 @@ typedef struct stockList_node stockList_node;
 typedef struct lotList_node lotList_node;
 typedef struct orderList_node orderList_node;
 
-//Struct per gli elementi della pasticceria
-struct ingredient{
-    char* name;
-    unsigned int quantity;
-};
-
-struct recipe{
-    char* name;
-    ingredientList_node* ingHead;
-};
-
-struct order{
-    char* recipeName;
-    unsigned int arrivalTime;
-};
-
 //Struct per la costruzione delle strutture dati
 struct ingredientList_node{
-    ingredient content;
+    char* name;
+    unsigned int quantity;
     ingredientList_node* next;
 };
 
 struct lotList_node{
-    ingredient content;
-    int expiration;
+    unsigned int quantity;
+    unsigned int expiration;
     lotList_node* next;
     lotList_node* prev;
 };
 
 struct stockList_node{
-    lotList_node* lot;
+    char* name;
+    unsigned int tot;
+    lotList_node* lotHead;
     stockList_node* next;
     stockList_node* prev;
 };
 
 struct recipeList_node{
-    recipe content;
+    char* name;
+    ingredientList_node* ingList;
     recipeList_node* next;
     recipeList_node* prev;
 };
 
 struct orderList_node{
-    order content;
-    int expiration;
-    int weight;
-    int suspended;
+    char* name;
+    unsigned int arrivalTime;
+    unsigned int quantity;
+    unsigned int expiration;
+    unsigned int weight;
+    unsigned int suspended;
     orderList_node* next;
     orderList_node* prev;
 };
@@ -92,35 +79,28 @@ void                    rimuovi_ricetta();
 void                    rifornimento();
 void                    ordine();
 
+//Funzione di hash
+unsigned int            hash(char*);
 
 //Funzioni tabella hash ricette
-int                     addToRecipeHT(recipeList_node*);
-int                     addToBucketRecipe(recipeList_node*, unsigned int);
-unsigned int            hash(char*);
+void                    insertRecipe(recipeList_node*);
+recipeList_node*        searchRecipe(char*);
 void                    removeRecipe(recipeList_node**);
-void                    removeRecipeIngList(ingredientList_node**);
-recipeList_node*        findRecipe(char*, unsigned int);
 
 //Funzioni tabella hash magazzino
 void                    addToStockHT(stockList_node*);
-void                    addToBucketStock(stockList_node*, unsigned int);
 
 //Funzioni per liste di ingredienti
 void                    insertIngredientList(ingredientList_node**, ingredientList_node*);
 
 //Funzioni per liste di lotti
-void                    insertLotInOrder(lotList_node**, lotList_node*);
-void                    removeLot(lotList_node**);
+
+//Funzioni per liste di ordini
 
 //Utilities
 void                    elaborateCommand(char[]);
-void                    printAllRecipeEntriesHT();
-void                    printRecipeHT();
+void                    printAllRecipes();
 void                    printRecipeList(recipeList_node*);
-void                    printIngredientList(ingredientList_node*);
-void                    printStockHT();
-void                    printStockLists(stockList_node*);
-void                    printLotList(lotList_node*);
 
 //------------------------------------------------------------------------------------------------------------------------------------
 
@@ -154,25 +134,24 @@ int main(){
     }while(status == 1);
 
     //Stampe per verifiche
-
-    //Liberazione memoria
-    /*
-    recipeList_node* curr;
+    printAllRecipes();
 
     for(int i=0 ; i<HASHTABLE_SIZE ; i++){
         if(recipeHashTable[i]){
-            curr = recipeHashTable[i];
+            recipeList_node* curr = recipeHashTable[i];
+            recipeList_node* tmp = NULL;
+
             while(curr){
-                recipeList_node* next = curr->next;
+                tmp = curr->next;
                 removeRecipe(&curr);
-                curr = next;
+                curr = tmp;
             }
-            recipeHashTable[i] = NULL;
         }
     }
     free(recipeHashTable);
     free(stockHashTable);
-    */
+
+    //Liberazione memoria
 }
 //==============================================================================================================================
 
@@ -209,6 +188,7 @@ void elaborateCommand(char command[]){
         case 3:
             //Ordine
             ordine();
+            time++;
             break;
         
         default:
@@ -216,248 +196,132 @@ void elaborateCommand(char command[]){
     }   
 }
 
-void printAllRecipeEntriesHT(){
-    int i;
-    for(i = 0 ; i < HASHTABLE_SIZE ; i++){
-        recipeList_node* curr = recipeHashTable[i];
-        while(curr){
-            printf("HT[%d] = %p -> ", i, curr);
-            curr = curr->next;
-        }
-        printf("\n");
-    }
-}
-
-void printRecipeHT(){
-    int i;
-    for(i = 0 ; i < HASHTABLE_SIZE ; i++){
-        if(recipeHashTable[i] != NULL){
-            printf("HT[%d] ", i);
+void printAllRecipes(){
+    unsigned int i = 0;
+    for(i=0 ;i < HASHTABLE_SIZE ; i++){
+        if(recipeHashTable[i]){
+            printf("ENTRY[%d]:\n", i);
             printRecipeList(recipeHashTable[i]);
-            printf("\n");
         }
     }
-}
-
-void printRecipeBucket(char* x){
-    int index = hash(x);
-    printf("HT[%d]: ", index);
-    printRecipeList(recipeHashTable[index]);
-    printf("\n");
 }
 
 void printRecipeList(recipeList_node* x){
-    if(x == NULL)return;
-    printf("-> %s ", x->content.name);
-    /*
-    printf("(INGREDIENTI: ");
-    printIngredientList(x->content.ingHead);
-    printf(") ");
-    */
-    printRecipeList(x->next);
-}
-
-void printIngredientList(ingredientList_node* x){
-    if(x == NULL)return;
-    printf("-> %s %d", x->content.name, x->content.quantity);
-    printIngredientList(x->next);
-}
-
-void printStockHT(){
-    int i;
-    for(i = 0 ; i < HASHTABLE_SIZE ; i++){
-        if(stockHashTable[i] != NULL){
-            printf("%d HT[%d] ", time, i);
-            printStockLists(stockHashTable[i]);
-            printf("\n");
-            fflush(stdout);
-        }
+    if(x == NULL){
+        printf("\n");
+        return;
     }
-}
 
-void printStockLists(stockList_node* head){
-    if(head == NULL) return;
-
-    printf("\n==> %s \n", head->lot->content.name);
-    printLotList(head->lot);
-    printStockLists(head->next);
-}
-
-void printLotList(lotList_node* head){
-    if(head == NULL) return;
-
-    printf("-> %s %d %d ", head->content.name, head->content.quantity, head->expiration);
-    printLotList(head->next);
+    if(x->next && x->next->prev != x) printf(" (Errore) ");
+    printf("-> %s ", x->name);
+    printRecipeList(x->next);
 }
 
 //aggiungi_ricetta
 void aggiungi_ricetta(){
-    int     status;                                 //Var in cui si conserva il valore dell'ultimo scanf;
-    char    eol = '0';                              //Var per controllare la fine della linea
+    int     status;
+    char    eol = '0'; //end of line
+    char    name[ARG_LENGTH];
+    char    ingName[ARG_LENGTH];
+    int     quantity;
 
-    char            name[ARG_LENGTH];                       //Nome della ricetta
-    char            ingName[ARG_LENGTH];                    //Ingrediente
-    unsigned int    ingQuantity;                            //Quantità ingrediente
-
-    status = scanf("%s", name);                     //Lettura del nome della ricetta
-
-    //Creazione ricetta
-    recipeList_node* newRecipe = (recipeList_node*)malloc(sizeof(recipeList_node));
-    newRecipe->content.name = (char*)malloc(strlen(name) + 1);
-    strcpy(newRecipe->content.name, name);
-    newRecipe->prev = NULL;
-    newRecipe->next = NULL;
-    newRecipe->content.ingHead = NULL;
-
-    int res = addToRecipeHT(newRecipe);
-    if(res == 0){
+    status = scanf("%s", name);
+    if(searchRecipe(name) != NULL){
         printf("ignorato\n");
-        return;        //Ricetta già presente
+        do{
+            status = scanf("%s %d", ingName, &quantity);
+            status = scanf("%c\n", &eol);
+        }while(eol != '\n');
+        
+        return;
     }
 
-    printf("aggiunta\n");
-    do{
-        //Lettura ingredienti
-        status = scanf("%s %d", ingName, &ingQuantity);
+    //Creazione nodo ricetta
+    recipeList_node* x = (recipeList_node*)malloc(sizeof(recipeList_node));
+    x->name = (char*)malloc(strlen(name) + 1);
+    strcpy(x->name, name);
+    x->ingList  = NULL;
+    x->next     = NULL;
+    x->prev     = NULL;
 
-        //Creazione ingrediente
+    //Inserimento ricetta
+    insertRecipe(x);
 
-        ingredientList_node* newIng = (ingredientList_node*)malloc(sizeof(ingredientList_node));
-
-        newIng->content.name = (char*)malloc(strlen(ingName) + 1);
-        strcpy(newIng->content.name, ingName);
-        newIng->content.quantity = ingQuantity;
-        newIng->next = NULL;
-
-        insertIngredientList(&(newRecipe->content.ingHead), newIng);
-
-        status = scanf("%c", &eol);
-    }while(eol != '\n');
+    printf("accettato\n");
 
     if(status == 0) printf("error\n");
+    
 }
 
-int addToRecipeHT(recipeList_node* x){
-    unsigned int index = hash(x->content.name);
-    int res = 0;
+void insertRecipe(recipeList_node* x){
+    unsigned int index = hash(x->name);
 
+    //Entry vuota
     if(recipeHashTable[index] == NULL){
         recipeHashTable[index] = x;
-        res = 1;
-    }
-    //Collisione
-    else res = addToBucketRecipe(x, index);
-
-    if(res == 0){
-        free(x->content.name);
-        x->content.name = NULL;
-        free(x);
-        x = NULL;
+        return;
     }
 
-    return res;
+    //Collisione - inserimento in testa
+    x->next = recipeHashTable[index];
+    recipeHashTable[index]->prev = x;
+    recipeHashTable[index] = x;
 }
 
-//rimuovi_ricetta DA FINIRE
+recipeList_node* searchRecipe(char* x){
+    unsigned int index = hash(x);
+
+    if(recipeHashTable[index] == NULL) return NULL;
+    
+    recipeList_node* curr = recipeHashTable[index];
+    while(curr){
+        if(strcmp(curr->name, x) == 0) return curr;
+        curr = curr->next;
+    }
+
+    return NULL;
+}
+
+//rimuovi_ricetta
 void rimuovi_ricetta(){
-    int     status;
-    char    name[ARG_LENGTH];
+    
+}
 
-    status = scanf("%s\n", name);
+void removeRecipe(recipeList_node** x){
+    recipeList_node* tmp = *x;
 
-    //Rimozioni ricetta
-    unsigned int index = hash(name);
-    recipeList_node* recipe = findRecipe(name, index);
-    if(recipe){
-        //TODO - Controllare che la ricetta non abbia ordini in sospeso/completati da spedire
-        if(recipe->next == NULL && recipe->prev == NULL){ //Sto eliminando l'unico elemento della bucketlist
-            recipeHashTable[index] = NULL; 
-        }
-        removeRecipe(&recipe);
-        printf("rimossa\n");
-    }
-    else{
-        printf("non presente\n");
+    //Testa della lista
+    if((*x)->prev == NULL){
+        *x = (*x)->next;
+        if(*x) (*x)->prev = NULL;
+
+        free(tmp->name);
+        free(tmp);
+        return;
     }
 
+    //In mezzo alla lista
+    recipeList_node* prev = (*x)->prev;
+    recipeList_node* next = (*x)->next;
+    (*x)->prev->next = next;
+    if((*x)->next) (*x)->next->prev = prev;
 
-    /* TESTING
-    recipeList_node* curr;
-
-    for(int i=0 ; i<HASHTABLE_SIZE ; i++){
-        if(recipeHashTable[i]){
-            printf("%d\n", i);
-            curr = recipeHashTable[i];
-            while(curr){
-                recipeList_node* next = curr->next; 
-                removeRecipe(&curr);
-                curr = next;
-            }
-            recipeHashTable[i] = NULL;
-        }
-    }
-    */
-
-    if(status == 0) printf("Error\n");
+    free(tmp->name);
+    free(tmp);
 }
 
 //rifornimento
 void rifornimento(){
-    int     status;                                 //Var in cui si conserva il valore dell'ultimo scanf;
-    char    eol = '0';                              //Var per controllare la fine della linea
 
-    char            ingName[ARG_LENGTH];
-    unsigned int    ingQuantity;
-    unsigned int    ingExpiration;
-
-    do{
-        //Lettura ingredienti
-        status = scanf("%s %d %d", ingName, &ingQuantity, &ingExpiration);
-
-        //Creazione stock - Se lo stock è già presente allora andrà liberata questa struttura dati
-        stockList_node* newItemHT = (stockList_node*)malloc(sizeof(stockList_node));
-        newItemHT->next = NULL;
-        newItemHT->prev = NULL;
-
-        //Creazione lotto
-        lotList_node* newLot = (lotList_node*)malloc(sizeof(lotList_node));
-        newLot->content.name = (char*)malloc(strlen(ingName) + 1);
-        strcpy(newLot->content.name, ingName);
-        newLot->content.quantity = ingQuantity;
-        newLot->expiration = ingExpiration;
-        newLot->next = NULL;
-        newLot->prev = NULL;
-
-        newItemHT->lot = newLot;
-
-        addToStockHT(newItemHT);
-        
-        status = scanf("%c", &eol);
-    }while(eol != '\n');
-
-    printf("rifornito\n");
-
-    if(status == 0) printf("error\n");
 }
 
 void addToStockHT(stockList_node* x){
-    unsigned int index = hash(x->lot->content.name);
-
-    if(stockHashTable[index] == NULL) stockHashTable[index] = x;
-    //Collisione
-    else addToBucketStock(x, index);
+    
 }
 
 //ordine
 void ordine(){
-    int     status;
-    
-    char    recipeName[ARG_LENGTH];
-    int     requestedQuantity;
 
-    status = scanf("%s %d", recipeName, &requestedQuantity);
-
-    if(status == 0) printf("Error\n");
 }
 
 //Funzione di hash
@@ -470,197 +334,4 @@ unsigned int hash(char* x){
     }
 
     return res % HASHTABLE_SIZE;
-}
-
-//Funzioni per MAGAZZINO (STOCKS)
-void addToBucketStock(stockList_node* x, unsigned int index){
-    stockList_node* curr = stockHashTable[index];
-
-    while(curr){
-        if(strcmp(x->lot->content.name, curr->lot->content.name) == 0){
-            //Trovato ingrediente in magazzino, aggiungere lotto alla lista dei lotti
-            insertLotInOrder(&(curr->lot), x->lot);
-            return;
-        }
-        if(curr->next == NULL) break;
-        curr = curr->next;
-    }
-    if(strcmp(x->lot->content.name, curr->lot->content.name) == 0){
-        insertLotInOrder(&(curr->lot), x->lot);
-        return;
-    }
-
-    //Ingrediente non trovato, aggiungo nuovo ingrediente nella bucketList
-    if(curr == NULL) {
-        stockHashTable[index] = x;
-        x->prev = NULL;
-        x->next = NULL;
-    } 
-    else { 
-        curr->next = x;
-        x->prev = curr;
-        x->next = NULL;
-    }
-}
-
-//Funzioni per RICETTE
-int addToBucketRecipe(recipeList_node* x, unsigned int index){
-    recipeList_node* curr = recipeHashTable[index];
-
-    while(curr){
-        if(strcmp(curr->content.name, x->content.name) == 0){
-            //Trovata ricetta con stesso nome
-            return 0;
-        }
-        if(curr->next == NULL) break;
-        curr = curr->next;
-    }
-    if(strcmp(curr->content.name, x->content.name) == 0) return 0; //Trovata ricetta con stesso nome
-
-    if(curr == NULL) {
-        recipeHashTable[index] = x;
-        x->prev = NULL;
-        x->next = NULL;
-    } 
-    else { 
-        curr->next = x;
-        x->prev = curr;
-        x->next = NULL;
-    }
-
-    return 1;
-}
-
-void removeRecipe(recipeList_node** x){
-    recipeList_node* tmp = (*x);
-
-    if(*x == NULL) return;
-
-    //Siamo in testa
-    if((*x)->prev == NULL){
-        (*x) = (*x)->next;
-        if(*x) (*x)->prev = NULL;
-
-        removeRecipeIngList(&(tmp->content.ingHead));
-        free(tmp->content.name);
-        tmp->content.name = NULL;
-        free(tmp);
-        tmp = NULL;
-        return;
-    }
-
-    //Non siamo in testa
-    (*x)->prev->next = (*x)->next;
-    if((*x)->next) (*x)->next->prev = (*x)->prev;
-
-    removeRecipeIngList(&(tmp->content.ingHead));
-    free(tmp->content.name);
-    tmp->content.name = NULL;
-    free(tmp);
-    tmp = NULL;
-}
-
-void removeRecipeIngList(ingredientList_node** x){
-    ingredientList_node* curr = *x;
-
-    while(curr){
-        ingredientList_node* next = curr->next;
-        free(curr->content.name);
-        free(curr);
-        curr = next;
-    }
-}
-
-recipeList_node* findRecipe(char* x, unsigned int index){
-    if(recipeHashTable[index] == NULL) return NULL;
-
-    recipeList_node* curr = recipeHashTable[index];
-    while(curr){
-        if(strcmp(curr->content.name, x) == 0) return curr;
-        curr = curr->next;
-    }
-    return curr;
-
-}
-
-//Funzioni per liste di ingredienti
-void insertIngredientList(ingredientList_node** head, ingredientList_node* x){
-    if(*head == NULL){
-        *head = x;
-        return;
-    }
-
-    x->next = *head;
-    *head = x;
-}
-
-//Funzioni per liste di lotti
-void insertLotInOrder(lotList_node** head, lotList_node* x) {
-    if(*head && (*head)->expiration <= time) removeLot(head);
-
-    if (*head == NULL || x->expiration < (*head)->expiration) {
-        if(*head && x->expiration == (*head)->expiration){
-            (*head)->content.quantity += x->content.quantity;
-            free(x->content.name);
-            x->content.name = NULL;
-            free(x);
-            x = NULL;
-            return;
-        }
-        x->next = *head;
-        x->prev = NULL;
-        if(*head) (*head)->prev = x;
-        *head = x;
-        return;
-    }
-
-    lotList_node* curr = *head;
-
-    while (curr->next && x->expiration > curr->next->expiration){
-        if(curr->expiration <= time) removeLot(&curr);
-        curr = curr->next;
-    }
-
-    if(curr->next){
-        if(curr->next->expiration == x->expiration){
-            curr->next->content.quantity += x->content.quantity;
-            free(x->content.name);
-            x->content.name = NULL;
-            free(x);
-            x = NULL;
-            return;
-        }
-    }
-
-    x->next = curr->next;
-    x->prev = curr;
-    curr->next = x;
-    if(curr->next) curr->next->prev = x;
-}
-
-void removeLot(lotList_node** x){
-    lotList_node* tmp = (*x);
-
-    if(*x == NULL) return;
-
-    //Siamo in testa
-    if((*x)->prev == NULL){
-        (*x) = (*x)->next;
-        if(*x) (*x)->prev = NULL;
-
-        free(tmp->content.name);
-        tmp->content.name = NULL;
-        free(tmp);
-        tmp = NULL;
-        return;
-    }
-
-    //Non siamo in testa
-    (*x)->prev->next = (*x)->next;
-    if((*x)->next) (*x)->next->prev = (*x)->prev;
-
-    free(tmp->content.name);
-    tmp->content.name = NULL;
-    free(tmp);
-    tmp = NULL;
 }
