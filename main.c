@@ -13,7 +13,7 @@
 #define ARG_LENGTH          256     //Lunghezza massima di un argomento (ingredienti, ricette...) di un comando preso in input
 
 //Dimensioni strutture dati statiche
-#define HASHTABLE_SIZE      300
+#define HASHTABLE_SIZE      5000
 
 //Altri parametri
 #define HASHPARAMETER       31  
@@ -110,6 +110,7 @@ void                    insertIngredientList(ingredientList_node**, ingredientLi
 
 //Funzioni per liste di lotti
 void                    insertLotInOrder(lotList_node**, lotList_node*);
+void                    removeLot(lotList_node**);
 
 //Utilities
 void                    elaborateCommand(char[]);
@@ -153,6 +154,25 @@ int main(){
     }while(status == 1);
 
     //Stampe per verifiche
+
+    //Liberazione memoria
+    /*
+    recipeList_node* curr;
+
+    for(int i=0 ; i<HASHTABLE_SIZE ; i++){
+        if(recipeHashTable[i]){
+            curr = recipeHashTable[i];
+            while(curr){
+                recipeList_node* next = curr->next;
+                removeRecipe(&curr);
+                curr = next;
+            }
+            recipeHashTable[i] = NULL;
+        }
+    }
+    free(recipeHashTable);
+    free(stockHashTable);
+    */
 }
 //==============================================================================================================================
 
@@ -183,6 +203,7 @@ void elaborateCommand(char command[]){
         case 2:
             //Rifornimento
             rifornimento();
+            time++;
             break;
 
         case 3:
@@ -220,7 +241,7 @@ void printRecipeHT(){
 
 void printRecipeBucket(char* x){
     int index = hash(x);
-    printf("HT[%d]: ",index);
+    printf("HT[%d]: ", index);
     printRecipeList(recipeHashTable[index]);
     printf("\n");
 }
@@ -246,7 +267,7 @@ void printStockHT(){
     int i;
     for(i = 0 ; i < HASHTABLE_SIZE ; i++){
         if(stockHashTable[i] != NULL){
-            printf("HT[%d] ", i);
+            printf("%d HT[%d] ", time, i);
             printStockLists(stockHashTable[i]);
             printf("\n");
             fflush(stdout);
@@ -257,7 +278,7 @@ void printStockHT(){
 void printStockLists(stockList_node* head){
     if(head == NULL) return;
 
-    printf("==> %s \n", head->lot->content.name);
+    printf("\n==> %s \n", head->lot->content.name);
     printLotList(head->lot);
     printStockLists(head->next);
 }
@@ -288,13 +309,6 @@ void aggiungi_ricetta(){
     newRecipe->next = NULL;
     newRecipe->content.ingHead = NULL;
 
-    /*
-    if(time == 853 || time == 42 || time == 823 || hash(name) == 144){
-        printf("DEBUG: %s\n", name);
-        printRecipeBucket(name);
-    }
-    */
-
     int res = addToRecipeHT(newRecipe);
     if(res == 0){
         printf("ignorato\n");
@@ -320,13 +334,6 @@ void aggiungi_ricetta(){
         status = scanf("%c", &eol);
     }while(eol != '\n');
 
-    /*
-    if(time == 853 || time == 42 || time == 823 || hash(name) == 144){
-        printf("DEBUG: %s\n", name);
-        printRecipeBucket(name);
-    }
-    */
-
     if(status == 0) printf("error\n");
 }
 
@@ -343,7 +350,9 @@ int addToRecipeHT(recipeList_node* x){
 
     if(res == 0){
         free(x->content.name);
+        x->content.name = NULL;
         free(x);
+        x = NULL;
     }
 
     return res;
@@ -361,7 +370,9 @@ void rimuovi_ricetta(){
     recipeList_node* recipe = findRecipe(name, index);
     if(recipe){
         //TODO - Controllare che la ricetta non abbia ordini in sospeso/completati da spedire
-        if(recipe->next == NULL && recipe->prev == NULL) recipeHashTable[index] = NULL; //Sto eliminando l'ultimo elemento della bucketlist
+        if(recipe->next == NULL && recipe->prev == NULL){ //Sto eliminando l'unico elemento della bucketlist
+            recipeHashTable[index] = NULL; 
+        }
         removeRecipe(&recipe);
         printf("rimossa\n");
     }
@@ -403,13 +414,19 @@ void rifornimento(){
         //Lettura ingredienti
         status = scanf("%s %d %d", ingName, &ingQuantity, &ingExpiration);
 
-        //Creazione lotto
+        //Creazione stock - Se lo stock è già presente allora andrà liberata questa struttura dati
         stockList_node* newItemHT = (stockList_node*)malloc(sizeof(stockList_node));
+        newItemHT->next = NULL;
+        newItemHT->prev = NULL;
+
+        //Creazione lotto
         lotList_node* newLot = (lotList_node*)malloc(sizeof(lotList_node));
         newLot->content.name = (char*)malloc(strlen(ingName) + 1);
         strcpy(newLot->content.name, ingName);
         newLot->content.quantity = ingQuantity;
         newLot->expiration = ingExpiration;
+        newLot->next = NULL;
+        newLot->prev = NULL;
 
         newItemHT->lot = newLot;
 
@@ -465,44 +482,51 @@ void addToBucketStock(stockList_node* x, unsigned int index){
             insertLotInOrder(&(curr->lot), x->lot);
             return;
         }
+        if(curr->next == NULL) break;
         curr = curr->next;
+    }
+    if(strcmp(x->lot->content.name, curr->lot->content.name) == 0){
+        insertLotInOrder(&(curr->lot), x->lot);
+        return;
     }
 
     //Ingrediente non trovato, aggiungo nuovo ingrediente nella bucketList
-    x->next = stockHashTable[index];
-    stockHashTable[index] = x;
+    if(curr == NULL) {
+        stockHashTable[index] = x;
+        x->prev = NULL;
+        x->next = NULL;
+    } 
+    else { 
+        curr->next = x;
+        x->prev = curr;
+        x->next = NULL;
+    }
 }
 
 //Funzioni per RICETTE
 int addToBucketRecipe(recipeList_node* x, unsigned int index){
     recipeList_node* curr = recipeHashTable[index];
 
-    while(curr && curr->next){
+    while(curr){
         if(strcmp(curr->content.name, x->content.name) == 0){
             //Trovata ricetta con stesso nome
             return 0;
         }
+        if(curr->next == NULL) break;
         curr = curr->next;
     }
     if(strcmp(curr->content.name, x->content.name) == 0) return 0; //Trovata ricetta con stesso nome
 
-    //Lista vuota
-    if(curr == NULL){
+    if(curr == NULL) {
         recipeHashTable[index] = x;
-        return 1;
+        x->prev = NULL;
+        x->next = NULL;
+    } 
+    else { 
+        curr->next = x;
+        x->prev = curr;
+        x->next = NULL;
     }
-
-    //Un solo elemento nella lista
-    if(curr->prev == NULL){
-        recipeHashTable[index]->next = x;
-        x->prev = recipeHashTable[index];
-        return 1;
-    }
-
-    //Siamo in coda
-    x->prev = curr->prev->next; //curr
-    x->next = NULL;
-    curr->next = x;
 
     return 1;
 }
@@ -517,10 +541,9 @@ void removeRecipe(recipeList_node** x){
         (*x) = (*x)->next;
         if(*x) (*x)->prev = NULL;
 
-        tmp->next = NULL;
-        tmp->prev = NULL;
         removeRecipeIngList(&(tmp->content.ingHead));
         free(tmp->content.name);
+        tmp->content.name = NULL;
         free(tmp);
         tmp = NULL;
         return;
@@ -530,10 +553,9 @@ void removeRecipe(recipeList_node** x){
     (*x)->prev->next = (*x)->next;
     if((*x)->next) (*x)->next->prev = (*x)->prev;
 
-    tmp->next = NULL;
-    tmp->prev = NULL;
     removeRecipeIngList(&(tmp->content.ingHead));
     free(tmp->content.name);
+    tmp->content.name = NULL;
     free(tmp);
     tmp = NULL;
 }
@@ -574,16 +596,71 @@ void insertIngredientList(ingredientList_node** head, ingredientList_node* x){
 
 //Funzioni per liste di lotti
 void insertLotInOrder(lotList_node** head, lotList_node* x) {
-    if (*head == NULL || x->expiration <= (*head)->expiration) {
+    if(*head && (*head)->expiration <= time) removeLot(head);
+
+    if (*head == NULL || x->expiration < (*head)->expiration) {
+        if(*head && x->expiration == (*head)->expiration){
+            (*head)->content.quantity += x->content.quantity;
+            free(x->content.name);
+            x->content.name = NULL;
+            free(x);
+            x = NULL;
+            return;
+        }
         x->next = *head;
+        x->prev = NULL;
+        if(*head) (*head)->prev = x;
         *head = x;
         return;
     }
 
     lotList_node* curr = *head;
 
-    while (curr && curr->next && x->expiration > curr->next->expiration) curr = curr->next;
+    while (curr->next && x->expiration > curr->next->expiration){
+        if(curr->expiration <= time) removeLot(&curr);
+        curr = curr->next;
+    }
+
+    if(curr->next){
+        if(curr->next->expiration == x->expiration){
+            curr->next->content.quantity += x->content.quantity;
+            free(x->content.name);
+            x->content.name = NULL;
+            free(x);
+            x = NULL;
+            return;
+        }
+    }
 
     x->next = curr->next;
+    x->prev = curr;
     curr->next = x;
+    if(curr->next) curr->next->prev = x;
+}
+
+void removeLot(lotList_node** x){
+    lotList_node* tmp = (*x);
+
+    if(*x == NULL) return;
+
+    //Siamo in testa
+    if((*x)->prev == NULL){
+        (*x) = (*x)->next;
+        if(*x) (*x)->prev = NULL;
+
+        free(tmp->content.name);
+        tmp->content.name = NULL;
+        free(tmp);
+        tmp = NULL;
+        return;
+    }
+
+    //Non siamo in testa
+    (*x)->prev->next = (*x)->next;
+    if((*x)->next) (*x)->next->prev = (*x)->prev;
+
+    free(tmp->content.name);
+    tmp->content.name = NULL;
+    free(tmp);
+    tmp = NULL;
 }
