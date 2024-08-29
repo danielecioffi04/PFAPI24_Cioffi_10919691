@@ -85,7 +85,7 @@ unsigned int            hash(char*);
 //Funzioni tabella hash ricette
 void                    insertRecipe(recipeList_node*);
 recipeList_node*        searchRecipe(char*);
-void                    removeRecipe(recipeList_node**);
+void                    removeRecipe(recipeList_node**, recipeList_node*);
 
 //Funzioni tabella hash magazzino
 void                    insertStock(stockList_node*);
@@ -164,7 +164,7 @@ int main(){
 
             while(curr){
                 tmp = curr->next;
-                removeRecipe(&curr);
+                removeRecipe(&recipeHashTable[i], curr);
                 curr = tmp;
             }
         }
@@ -418,32 +418,69 @@ recipeList_node* searchRecipe(char* x){
 
 //rimuovi_ricetta
 void rimuovi_ricetta(){
-    
-}
+    int status;
+    char    name[ARG_LENGTH];
 
-void removeRecipe(recipeList_node** x){
-    recipeList_node* tmp = *x;
+    status = scanf("%s", name);
 
-    //Testa della lista
-    if((*x)->prev == NULL){
-        *x = (*x)->next;
-        if(*x) (*x)->prev = NULL;
+    recipeList_node* recipe = searchRecipe(name);
 
-        free(tmp->name);
-        removeIngredients(&(tmp->ingList));
-        free(tmp);
+    if(recipe == NULL){
+        printf("non presente\n");
         return;
     }
 
-    //In mezzo alla lista
-    recipeList_node* prev = (*x)->prev;
-    recipeList_node* next = (*x)->next;
-    (*x)->prev->next = next;
-    if((*x)->next) (*x)->next->prev = prev;
+    orderList_node* curr = suspendedOrders;
 
-    free(tmp->name);
-    removeIngredients(&(tmp->ingList));
-    free(tmp);
+    while(curr){
+        if(strcmp(curr->name, name) == 0){
+            printf("ordini in sospeso\n");
+            return;
+        }
+        curr = curr->next;
+    }
+
+    curr = completedOrders;
+    while(curr){
+        if(strcmp(curr->name, name) == 0){
+            printf("ordini in sospeso\n");
+            return;
+        }
+        curr = curr->next;
+    }
+
+    printf("rimossa\n");
+    removeRecipe(&recipeHashTable[hash(name)], recipe);
+
+    if(searchRecipe(name) != NULL) printf("Ricetta non rimossa correttamente\n");
+
+    if(status == 0) printf("error\n");
+}
+
+void removeRecipe(recipeList_node** head, recipeList_node* x){
+    //Sto cercando di eliminare la testa
+    if(*head == x){
+        *head = x->next;
+        if(*head) (*head)->prev = NULL;
+
+        x->next = NULL;
+        x->prev = NULL;
+        free(x->name);
+        removeIngredients(&(x->ingList));
+        free(x);
+        return;
+    }
+
+    //Sono in mezzo alla lista
+    x->prev->next = x->next;
+    if(x->next) x->next->prev = x->prev;
+
+    x->next = NULL;
+    x->prev = NULL;
+    free(x->name);
+    removeIngredients(&(x->ingList));
+    free(x);
+    return;
 }
 
 void removeIngredients(ingredientList_node** x){
