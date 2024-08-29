@@ -25,6 +25,7 @@ typedef struct recipeList_node recipeList_node;
 typedef struct stockList_node stockList_node;
 typedef struct lotList_node lotList_node;
 typedef struct orderList_node orderList_node;
+typedef struct courierList_node courierList_node;
 
 //Struct per la costruzione delle strutture dati
 struct ingredientList_node{
@@ -66,6 +67,15 @@ struct orderList_node{
     ingredientList_node* ingList;
 };
 
+struct courierList_node{
+    char* name;
+    unsigned int arrivalTime;
+    unsigned int quantity;
+    unsigned int weight;
+    courierList_node* next;
+    courierList_node* prev;
+};
+
 //Configurazione corriere
 struct courier_config{
     unsigned int clock;              //ogni quanto passa il corriere
@@ -78,6 +88,7 @@ void                    aggiungi_ricetta();
 void                    rimuovi_ricetta();
 void                    rifornimento();
 void                    ordine();
+void                    corriere();
 
 //Funzione di hash
 unsigned int            hash(char*);
@@ -105,6 +116,8 @@ void                    enqueueCompletedOrder(orderList_node*);
 void                    enqueueSuspendedOrder(orderList_node*);
 orderList_node*         removeSuspendedOrder(orderList_node**, orderList_node*);
 void                    insertCompletedOrder(orderList_node**, orderList_node*);
+orderList_node*         removeCompletedOrder(orderList_node**);
+void                    insertOrderToShip(courierList_node**, courierList_node*);
 
 //Utilities
 void                    elaborateCommand(char[]);
@@ -115,6 +128,7 @@ void                    printAllStocks();
 void                    printStockList(stockList_node*);
 void                    printLotList(lotList_node*);
 void                    printOrderList(orderList_node*);
+void                    printCourierList(courierList_node*);
 
 //------------------------------------------------------------------------------------------------------------------------------------
 
@@ -217,6 +231,10 @@ void elaborateCommand(char command[]){
         else commandID = ADD_ING_ID;
     }
     else commandID = ADD_ORDER_ID;
+
+    if(time % courierConfig.clock == 0 && time != 0){
+        corriere();
+    }
 
     switch (commandID){
         case 0:
@@ -321,6 +339,63 @@ void printOrderList(orderList_node* x){
     if(lastCompleted == x || lastSuspended == x) printf("-> %d S:%d - %s WEIGHT: %d LAST", x->arrivalTime, x->suspended, x->name, x->weight);
     else printf("-> %d S:%d - %s WEIGHT: %d ", x->arrivalTime, x->suspended, x->name, x->weight);
     printOrderList(x->next);
+}
+
+void printCourierList(courierList_node* x){
+    if(x == NULL){
+        printf("\n");
+        return;
+    }
+
+    if(x->next && x->next->prev != x) printf(" (Errore) ");
+    else printf("-> %d - %s WEIGHT: %d ", x->arrivalTime, x->name, x->weight);
+    printCourierList(x->next);
+}
+
+//corriere
+void corriere(){
+    courierList_node* list = NULL;
+    orderList_node* curr = completedOrders;
+    int max = courierConfig.maxQuantity;
+
+    while(max > 0 && curr){
+        if(curr->weight > max) break;
+        orderList_node* next = curr->next;
+
+        max -= curr->weight;
+        orderList_node* removed = removeCompletedOrder(&completedOrders);
+        if(removed->next != NULL || removed->prev != NULL) printf("Errore nella rimozione\n");
+
+        courierList_node* newNode = (courierList_node*)malloc(sizeof(courierList_node));
+        newNode->next = NULL;
+        newNode->prev = NULL;
+        newNode->name = (char*)malloc(strlen(removed->name) + 1);
+        strcpy(newNode->name, removed->name);
+        newNode->arrivalTime = removed->arrivalTime;
+        newNode->weight = removed->weight;
+        newNode->quantity = removed->quantity;
+
+        free(removed->name);
+        free(removed);
+
+        insertOrderToShip(&list, newNode);
+
+        curr = next;
+    }
+
+    if(list == NULL){
+        printf("camioncino vuoto\n");
+        return;
+    }
+
+    while(list){
+        courierList_node* tmp = list;
+        printf("%d %s %d\n", list->arrivalTime, list->name, list->quantity);
+
+        list = list->next;
+        free(tmp->name);
+        free(tmp);
+    }
 }
 
 //aggiungi_ricetta
@@ -741,39 +816,41 @@ void enqueueCompletedOrder(orderList_node* x){
 }
 
 //Aggiunge in ordine
-void insertCompletedOrder(orderList_node** head, orderList_node* x){
+void insertCompletedOrder(orderList_node** head, orderList_node* x) {
     //Lista vuota
-    if(*head == NULL){
+    if (*head == NULL) {
         *head = x;
+        lastCompleted = x;
         return;
     }
 
-    //Devo aggiungere in coda
-    if(lastCompleted && x->arrivalTime >= lastCompleted->arrivalTime){
+    //Inserimento in coda
+    if (x->arrivalTime >= lastCompleted->arrivalTime) {
         lastCompleted->next = x;
         x->prev = lastCompleted;
         lastCompleted = x;
         return;
     }
 
-    //Devo aggiungere in testa
-    if(x->arrivalTime <= (*head)->arrivalTime){
+    //Inserimento in testa
+    if (x->arrivalTime <= (*head)->arrivalTime) {
         (*head)->prev = x;
-        x->next = (*head);
+        x->next = *head;
         *head = x;
         return;
     }
 
     orderList_node* curr = *head;
-    while(curr->next && x->arrivalTime > curr->next->arrivalTime){
+    while (curr->next && x->arrivalTime > curr->next->arrivalTime) {
         curr = curr->next;
     }
 
-    //Dopo curr ma prima di curr->next
-    if(curr->next) curr->next->prev = x;
+    //Inserimento dopo curr e prima di curr->next
     x->next = curr->next;
-    x->prev = curr;
+    if (curr->next) curr->next->prev = x;
+    else lastCompleted = x;
     curr->next = x;
+    x->prev = curr;
 }
 
 //Aggiunge ordine sospeso in coda (si presuppone che questo ordine non sia collegato a nessuna lista)
@@ -811,6 +888,46 @@ orderList_node* removeSuspendedOrder(orderList_node** head, orderList_node* x){
     x->next = NULL;
     x->prev = NULL;
     return x;
+}
+
+orderList_node* removeCompletedOrder(orderList_node** head){
+    if(lastCompleted == *head) lastCompleted = NULL;
+
+    orderList_node* res = *head;
+    *head = (*head)->next;
+    if(*head) (*head)->prev = NULL;
+
+    res->next = NULL;
+    res->prev = NULL;
+    return res;
+}
+
+//Aggiunge in ordine decrescente di peso
+void insertOrderToShip(courierList_node** head, courierList_node* x) {
+    if(*head == NULL){
+        *head = x;
+        return;
+    }
+
+    if (x->weight > (*head)->weight || (x->weight == (*head)->weight && x->arrivalTime < (*head)->arrivalTime)) {
+        x->next = *head;
+        (*head)->prev = x;
+        x->prev = NULL;
+        *head = x;
+        return;
+    }
+
+    courierList_node* curr = *head;
+
+    while(curr->next && (x->weight < curr->next->weight || (x->weight == curr->next->weight && x->arrivalTime > curr->next->arrivalTime))){
+        curr = curr->next;
+    }
+
+    x->next = curr->next;
+    if(curr->next) curr->next->prev = x;
+    curr->next = x;
+    x->prev = curr;
+
 }
 
 //Funzione di hash
