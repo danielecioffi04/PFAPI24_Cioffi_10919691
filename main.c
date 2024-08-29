@@ -49,6 +49,7 @@ struct stockList_node{
 
 struct recipeList_node{
     char* name;
+    unsigned int weight;
     ingredientList_node* ingList;
     recipeList_node* next;
     recipeList_node* prev;
@@ -58,11 +59,11 @@ struct orderList_node{
     char* name;
     unsigned int arrivalTime;
     unsigned int quantity;
-    unsigned int expiration;
     unsigned int weight;
     unsigned int suspended;
     orderList_node* next;
     orderList_node* prev;
+    ingredientList_node* ingList;
 };
 
 //Configurazione corriere
@@ -99,6 +100,11 @@ void                    insertLot(stockList_node*, lotList_node*);
 void                    removeUselessLots(stockList_node*);
 
 //Funzioni per liste di ordini
+unsigned int            fullfillOrder(orderList_node*);
+void                    enqueueCompletedOrder(orderList_node*);
+void                    enqueueSuspendedOrder(orderList_node*);
+orderList_node*         removeSuspendedOrder(orderList_node**, orderList_node*);
+void                    insertCompletedOrder(orderList_node**, orderList_node*);
 
 //Utilities
 void                    elaborateCommand(char[]);
@@ -108,6 +114,7 @@ void                    printIngredientList(ingredientList_node*);
 void                    printAllStocks();
 void                    printStockList(stockList_node*);
 void                    printLotList(lotList_node*);
+void                    printOrderList(orderList_node*);
 
 //------------------------------------------------------------------------------------------------------------------------------------
 
@@ -116,6 +123,13 @@ void                    printLotList(lotList_node*);
 courier_config      courierConfig;              //Configurazioni del corriere
 recipeList_node**   recipeHashTable;            //HashTable per ricette
 stockList_node**    stockHashTable;             //HashTable in cui elemento è un albero di lotti ordinati per data di scadenza
+
+orderList_node*     completedOrders = NULL;
+orderList_node*     lastCompleted = NULL;
+
+orderList_node*     suspendedOrders = NULL;
+orderList_node*     lastSuspended = NULL;
+
 int                 time = 0;                   //Istante di tempo attuale
 
 
@@ -176,6 +190,20 @@ int main(){
     }
     
     free(stockHashTable);
+
+    while(completedOrders){
+        orderList_node* tmp = completedOrders;
+        completedOrders = completedOrders->next;
+        free(tmp->name);
+        free(tmp);
+    }
+
+    while(suspendedOrders){
+        orderList_node* tmp = suspendedOrders;
+        suspendedOrders = suspendedOrders->next;
+        free(tmp->name);
+        free(tmp);
+    }
 }
 //==============================================================================================================================
 
@@ -236,7 +264,7 @@ void printRecipeList(recipeList_node* x){
         return;
     }
     if(x->next && x->next->prev != x) printf(" (Errore) ");
-    printf("=> %s ", x->name);
+    printf("=> %s WEIGHT: %d", x->name, x->weight);
     printf(" (Ingredienti: ");
     printIngredientList(x->ingList);
     printRecipeList(x->next);
@@ -283,6 +311,18 @@ void printLotList(lotList_node* x){
     printLotList(x->next);
 }
 
+void printOrderList(orderList_node* x){
+    if(x == NULL){
+        printf("\n");
+        return;
+    }
+
+    if(x->next && x->next->prev != x) printf(" (Errore) ");
+    if(lastCompleted == x || lastSuspended == x) printf("-> %d S:%d - %s WEIGHT: %d LAST", x->arrivalTime, x->suspended, x->name, x->weight);
+    else printf("-> %d S:%d - %s WEIGHT: %d ", x->arrivalTime, x->suspended, x->name, x->weight);
+    printOrderList(x->next);
+}
+
 //aggiungi_ricetta
 void aggiungi_ricetta(){
     int             status;
@@ -309,6 +349,7 @@ void aggiungi_ricetta(){
     x->ingList  = NULL;
     x->next     = NULL;
     x->prev     = NULL;
+    x->weight   = 0;
 
     //Inserimento ricetta
     insertRecipe(x);
@@ -323,15 +364,16 @@ void aggiungi_ricetta(){
         y->quantity = quantity;
         y->next = NULL;
 
+        x->weight += quantity;
+
         insertIngredient(&(x->ingList), y);
 
         status = scanf("%c", &eol);
     }while(eol != '\n');
 
-    printf("accettato\n");
+    printf("aggiunta\n");
 
     if(status == 0) printf("error\n");
-    
 }
 
 void insertRecipe(recipeList_node* x){
@@ -376,7 +418,7 @@ recipeList_node* searchRecipe(char* x){
 
 //rimuovi_ricetta
 void rimuovi_ricetta(){
-
+    
 }
 
 void removeRecipe(recipeList_node** x){
@@ -423,6 +465,7 @@ void rifornimento(){
 
     do{
         status = scanf("%s %d %d", name, &quantity, &expiration);
+
         lotList_node* lot = (lotList_node*)malloc(sizeof(lotList_node));
         lot->expiration = expiration;
         lot->quantity = quantity;
@@ -449,6 +492,21 @@ void rifornimento(){
     }while(eol != '\n');
 
     printf("rifornito\n");
+
+    orderList_node* currOrder = suspendedOrders;
+    while(currOrder){
+        unsigned int res = fullfillOrder(currOrder);
+
+        orderList_node* nextOrder = currOrder->next;
+        
+        //L'ordine sospeso è stato completato
+        if(res == 1){
+            orderList_node* completed = removeSuspendedOrder(&suspendedOrders, currOrder);
+            if(completed->next != NULL || completed->prev != NULL) printf("Error: nodo non correttamente rimosso\n");
+            insertCompletedOrder(&completedOrders, completed);
+        }
+        currOrder = nextOrder;
+    }
 
     if(status == 0) printf("error\n");
 }
@@ -494,6 +552,12 @@ void insertLot(stockList_node* stock, lotList_node* x){
     //Eliminazione lotti scaduti
     removeUselessLots(stock);
 
+    //Se ho eliminato tutta la lista
+    if(stock->lotHead == NULL){
+        stock->lotHead = x;
+        return;
+    }
+
     //Se x scade prima della testa
     if(stock->lotHead && x->expiration < stock->lotHead->expiration){
         x->next = stock->lotHead;
@@ -525,7 +589,7 @@ void insertLot(stockList_node* stock, lotList_node* x){
 
 //Rimuove tutti i lotti scaduti o con 0 quantità
 void removeUselessLots(stockList_node* stock){
-    while(stock->lotHead->expiration <= time || stock->lotHead->quantity == 0){
+    while(stock->lotHead && (stock->lotHead->expiration <= time || stock->lotHead->quantity == 0)){
         stock->tot -= stock->lotHead->quantity;
 
         lotList_node* tmp = stock->lotHead;
@@ -538,7 +602,178 @@ void removeUselessLots(stockList_node* stock){
 
 //ordine
 void ordine(){
+    int             status;
+    char            name[ARG_LENGTH];
+    unsigned int    quantity;
 
+    status = scanf("%s %d", name, &quantity);
+    recipeList_node* recipe = searchRecipe(name);
+
+    if(recipe == NULL){
+        printf("rifiutato\n");
+        return;
+    }
+
+    printf("accettato\n");
+    orderList_node* x = (orderList_node*)malloc(sizeof(orderList_node));
+    x->name = (char*)malloc(strlen(name) + 1);
+    strcpy(x->name, name);
+    x->quantity = quantity;
+    x->suspended = 0;
+    x->arrivalTime = time;
+    x->weight = recipe->weight * quantity;
+    x->ingList = recipe->ingList;
+    x->next = NULL;
+    x->prev = NULL;
+
+    unsigned int res = fullfillOrder(x);
+    if(res == 0){
+        enqueueSuspendedOrder(x);
+    }
+    else {
+        enqueueCompletedOrder(x);
+    }
+
+    if(status == 0) printf("error\n");
+}
+
+unsigned int fullfillOrder(orderList_node* x){ //0 se sospeso, 1 se completato
+    ingredientList_node* currIng = x->ingList;
+
+    while(currIng){
+        unsigned int ingRequestedQuantity = currIng->quantity * x->quantity;
+
+        stockList_node* stock = searchStock(currIng->name);
+        if(stock) removeUselessLots(stock); //Elimino i lotti scaduti e vuoti e così aggiorno stock->tot
+        if(stock == NULL || stock->tot < ingRequestedQuantity){
+            //Sospendo l'ordine
+            x->suspended = 1;
+            return 0;
+        }
+        currIng = currIng->next;
+    }
+
+    //Se sono qui allora posso completare l'ordine
+    x->suspended = 0;
+
+    currIng = x->ingList;
+    while(currIng){
+        unsigned int ingRequestedQuantity = currIng->quantity * x->quantity;
+
+        stockList_node* stock = searchStock(currIng->name);
+        if(stock == NULL || stock->tot < ingRequestedQuantity) printf("ERROR - Stock is null or not enough ingredients\n");
+
+        lotList_node* currLot = stock->lotHead;
+        while(currLot){
+            //Lotto attuale può soddisfare la richiesta di ingrediente
+            if(currLot->quantity >= ingRequestedQuantity){
+                stock->tot -= ingRequestedQuantity;
+                currLot->quantity -= ingRequestedQuantity;
+                ingRequestedQuantity = 0;
+                
+                break;
+            }
+
+            //Lotto attuale non può soddisfare la richiesta di ingrediente
+            stock->tot -= currLot->quantity;
+            ingRequestedQuantity -= currLot->quantity;
+            currLot->quantity = 0;
+
+            currLot = currLot->next;
+        }
+
+        currIng = currIng->next;
+    }
+
+    return 1;
+}
+
+//Aggiunge ordine completato in coda (si presuppone che questo ordine non sia collegato a nessuna lista)
+void enqueueCompletedOrder(orderList_node* x){
+    //Lista vuota
+    if(lastCompleted == NULL){
+        completedOrders = x;
+        lastCompleted = x;
+        return;
+    }
+
+    //Lista non vuota
+    lastCompleted->next = x;
+    x->prev = lastCompleted;
+    lastCompleted = x;
+}
+
+//Aggiunge in ordine
+void insertCompletedOrder(orderList_node** head, orderList_node* x){
+    //Lista vuota
+    if(*head == NULL){
+        *head = x;
+        return;
+    }
+
+    //Devo aggiungere in coda
+    if(lastCompleted && x->arrivalTime >= lastCompleted->arrivalTime){
+        lastCompleted->next = x;
+        x->prev = lastCompleted;
+        lastCompleted = x;
+        return;
+    }
+
+    //Devo aggiungere in testa
+    if(x->arrivalTime <= (*head)->arrivalTime){
+        (*head)->prev = x;
+        x->next = (*head);
+        *head = x;
+        return;
+    }
+
+    orderList_node* curr = *head;
+    while(curr->next && x->arrivalTime > curr->next->arrivalTime){
+        curr = curr->next;
+    }
+
+    //Dopo curr ma prima di curr->next
+    if(curr->next) curr->next->prev = x;
+    x->next = curr->next;
+    x->prev = curr;
+    curr->next = x;
+}
+
+//Aggiunge ordine sospeso in coda (si presuppone che questo ordine non sia collegato a nessuna lista)
+void enqueueSuspendedOrder(orderList_node* x){
+    //Lista vuota
+    if(lastSuspended == NULL){
+        suspendedOrders = x;
+        lastSuspended = x;
+        return;
+    }
+
+    //Lista non vuota
+    lastSuspended->next = x;
+    x->prev = lastSuspended;
+    lastSuspended = x;
+}
+
+orderList_node* removeSuspendedOrder(orderList_node** head, orderList_node* x){
+    if(lastSuspended == x) lastSuspended = lastSuspended->prev;
+    
+    //Sto cercando di eliminare la testa
+    if(*head == x){
+        *head = x->next;
+        if(*head) (*head)->prev = NULL;
+
+        x->next = NULL;
+        x->prev = NULL;
+        return x;
+    }
+
+    //Sono in mezzo alla lista
+    x->prev->next = x->next;
+    if(x->next) x->next->prev = x->prev;
+
+    x->next = NULL;
+    x->prev = NULL;
+    return x;
 }
 
 //Funzione di hash
