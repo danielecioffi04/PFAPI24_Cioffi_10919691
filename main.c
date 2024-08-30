@@ -208,14 +208,12 @@ int main(){
     while(completedOrders){
         orderList_node* tmp = completedOrders;
         completedOrders = completedOrders->next;
-        free(tmp->name);
         free(tmp);
     }
 
     while(suspendedOrders){
         orderList_node* tmp = suspendedOrders;
         suspendedOrders = suspendedOrders->next;
-        free(tmp->name);
         free(tmp);
     }
 }
@@ -263,7 +261,7 @@ void elaborateCommand(char command[]){
         
         default:
             break;
-    }   
+    }
 }
 
 void printAllRecipes(){
@@ -369,13 +367,11 @@ void corriere(){
         courierList_node* newNode = (courierList_node*)malloc(sizeof(courierList_node));
         newNode->next = NULL;
         newNode->prev = NULL;
-        newNode->name = (char*)malloc(strlen(removed->name) + 1);
-        strcpy(newNode->name, removed->name);
+        newNode->name = removed->name;
         newNode->arrivalTime = removed->arrivalTime;
         newNode->weight = removed->weight;
         newNode->quantity = removed->quantity;
 
-        free(removed->name);
         free(removed);
 
         insertOrderToShip(&list, newNode);
@@ -393,7 +389,6 @@ void corriere(){
         printf("%d %s %d\n", list->arrivalTime, list->name, list->quantity);
 
         list = list->next;
-        free(tmp->name);
         free(tmp);
     }
 }
@@ -728,8 +723,7 @@ void ordine(){
 
     printf("accettato\n");
     orderList_node* x = (orderList_node*)malloc(sizeof(orderList_node));
-    x->name = (char*)malloc(strlen(name) + 1);
-    strcpy(x->name, name);
+    x->name = recipe->name;
     x->quantity = quantity;
     x->suspended = 0;
     x->arrivalTime = time;
