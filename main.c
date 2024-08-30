@@ -31,6 +31,7 @@ typedef struct courierList_node courierList_node;
 struct ingredientList_node{
     char* name;
     unsigned int quantity;
+    unsigned int hash;
     ingredientList_node* next;
 };
 
@@ -46,6 +47,7 @@ struct stockList_node{
     unsigned int tot;
     lotList_node* lotHead;
     stockList_node* next;
+    stockList_node* prev;
 };
 
 struct recipeList_node{
@@ -101,6 +103,7 @@ void                    removeRecipe(recipeList_node**, recipeList_node*);
 //Funzioni tabella hash magazzino
 void                    insertStock(stockList_node*);
 stockList_node*         searchStock(char*);
+stockList_node*         searchStockNoHash(char*, unsigned int);
 
 //Funzioni per liste di ingredienti
 void                    insertIngredient(ingredientList_node**, ingredientList_node*);
@@ -171,6 +174,7 @@ int main(){
     //Stampe per verifiche
 
     //Liberazione memoria
+    /*
     for(int i=0 ; i<HASHTABLE_SIZE ; i++){
         if(recipeHashTable[i]){
             recipeList_node* curr = recipeHashTable[i];
@@ -216,6 +220,7 @@ int main(){
         suspendedOrders = suspendedOrders->next;
         free(tmp);
     }
+    */
 }
 //==============================================================================================================================
 
@@ -431,6 +436,7 @@ void aggiungi_ricetta(){
         ingredientList_node* y = (ingredientList_node*)malloc(sizeof(ingredientList_node));
         y->name = (char*)malloc(strlen(ingName) + 1);
         strcpy(y->name, ingName);
+        y->hash = hash(y->name);
         y->quantity = quantity;
         y->next = NULL;
 
@@ -631,12 +637,25 @@ void insertStock(stockList_node* x){
 
     //Collisione - inserimento in testa
     x->next = stockHashTable[index];
+    stockHashTable[index]->prev = x;
     stockHashTable[index] = x;
 }
 
 stockList_node* searchStock(char* x){
     unsigned int index = hash(x);
 
+    if(stockHashTable[index] == NULL) return NULL;
+
+    stockList_node* curr = stockHashTable[index];
+    while(curr){
+        if(strcmp(curr->name, x) == 0) return curr;
+        curr = curr->next;
+    }
+
+    return NULL;
+}
+
+stockList_node* searchStockNoHash(char* x, unsigned int index){
     if(stockHashTable[index] == NULL) return NULL;
 
     stockList_node* curr = stockHashTable[index];
@@ -656,6 +675,7 @@ void insertLot(stockList_node* stock, lotList_node* x){
         return;
     }
 
+    /*
     //Eliminazione lotti scaduti
     removeUselessLots(stock);
 
@@ -664,6 +684,7 @@ void insertLot(stockList_node* stock, lotList_node* x){
         stock->lotHead = x;
         return;
     }
+    */
 
     //Se x scade prima della testa
     if(stock->lotHead && x->expiration < stock->lotHead->expiration){
@@ -749,7 +770,7 @@ unsigned int fullfillOrder(orderList_node* x){ //0 se sospeso, 1 se completato
     while(currIng){
         unsigned int ingRequestedQuantity = currIng->quantity * x->quantity;
 
-        stockList_node* stock = searchStock(currIng->name);
+        stockList_node* stock = searchStockNoHash(currIng->name, currIng->hash);
         if(stock) removeUselessLots(stock); //Elimino i lotti scaduti e vuoti e così aggiorno stock->tot
         if(stock == NULL || stock->tot < ingRequestedQuantity){
             //Sospendo l'ordine
@@ -766,7 +787,7 @@ unsigned int fullfillOrder(orderList_node* x){ //0 se sospeso, 1 se completato
     while(currIng){
         unsigned int ingRequestedQuantity = currIng->quantity * x->quantity;
 
-        stockList_node* stock = searchStock(currIng->name);
+        stockList_node* stock = searchStockNoHash(currIng->name, currIng->hash);
         if(stock == NULL || stock->tot < ingRequestedQuantity) printf("ERROR - Stock is null or not enough ingredients\n");
 
         lotList_node* currLot = stock->lotHead;
