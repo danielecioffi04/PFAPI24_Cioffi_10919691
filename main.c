@@ -16,7 +16,7 @@
 #define HASHTABLE_SIZE      5000
 
 //Altri parametri
-#define HASHPARAMETER       47  
+#define HASHPARAMETER       47
 
 //Forward declaration struct
 typedef struct courier_config courier_config;
@@ -26,6 +26,7 @@ typedef struct stockList_node stockList_node;
 typedef struct lotList_node lotList_node;
 typedef struct orderList_node orderList_node;
 typedef struct courierList_node courierList_node;
+typedef struct hashedString hashedString;
 
 //Struct per la costruzione delle strutture dati
 struct ingredientList_node{
@@ -45,6 +46,7 @@ struct lotList_node{
 struct stockList_node{
     char* name;
     unsigned int tot;
+    unsigned int hash;
     lotList_node* lotHead;
     stockList_node* next;
     stockList_node* prev;
@@ -53,6 +55,7 @@ struct stockList_node{
 struct recipeList_node{
     char* name;
     unsigned int weight;
+    unsigned int hash;
     ingredientList_node* ingList;
     recipeList_node* next;
     recipeList_node* prev;
@@ -76,6 +79,12 @@ struct courierList_node{
     unsigned int weight;
     courierList_node* next;
     courierList_node* prev;
+};
+
+struct hashedString{
+    char* string;
+    unsigned int hash;
+    hashedString* next;
 };
 
 //Configurazione corriere
@@ -140,6 +149,7 @@ void                    printCourierList(courierList_node*);
 courier_config      courierConfig;              //Configurazioni del corriere
 recipeList_node**   recipeHashTable;            //HashTable per ricette
 stockList_node**    stockHashTable;             //HashTable in cui elemento è un albero di lotti ordinati per data di scadenza
+hashedString**      stringHashTable;            //HashTable di stringhe
 
 orderList_node*     completedOrders = NULL;
 orderList_node*     lastCompleted = NULL;
@@ -158,12 +168,14 @@ int main(){
     //Inizializzazione strutture dati statiche
     recipeHashTable = (recipeList_node**)malloc(HASHTABLE_SIZE * sizeof(recipeList_node*));
     stockHashTable = (stockList_node**)malloc(HASHTABLE_SIZE * sizeof(stockList_node*));
+    stringHashTable = (hashedString**)malloc(HASHTABLE_SIZE * sizeof(hashedString*));
 
     for(int i=0 ; i<HASHTABLE_SIZE ; i++){
         recipeHashTable[i] = NULL;
         stockHashTable[i] = NULL;
+        stringHashTable[i] = NULL;
     }
-    
+
     //Lettura dell'input
     status = scanf("%d %d\n", &courierConfig.clock, &courierConfig.maxQuantity); //Lettura della configurazione del corriere
     do{
@@ -174,53 +186,6 @@ int main(){
     //Stampe per verifiche
 
     //Liberazione memoria
-    /*
-    for(int i=0 ; i<HASHTABLE_SIZE ; i++){
-        if(recipeHashTable[i]){
-            recipeList_node* curr = recipeHashTable[i];
-            recipeList_node* tmp = NULL;
-
-            while(curr){
-                tmp = curr->next;
-                removeRecipe(&recipeHashTable[i], curr);
-                curr = tmp;
-            }
-        }
-    }
-    free(recipeHashTable);
-    
-    for(int i=0 ; i<HASHTABLE_SIZE ; i++){
-        if(stockHashTable[i]){
-            stockList_node* curr = stockHashTable[i];
-            while(curr){
-                stockList_node* tmp = curr;
-                while(curr->lotHead){
-                    lotList_node* tmp = curr->lotHead;
-                    curr->lotHead = curr->lotHead->next;
-                    if(curr->lotHead) curr->lotHead->prev = NULL;
-                    free(tmp);
-                }
-                curr = curr->next;
-                free(tmp->name);
-                free(tmp);
-            }
-        }
-    }
-    
-    free(stockHashTable);
-
-    while(completedOrders){
-        orderList_node* tmp = completedOrders;
-        completedOrders = completedOrders->next;
-        free(tmp);
-    }
-
-    while(suspendedOrders){
-        orderList_node* tmp = suspendedOrders;
-        suspendedOrders = suspendedOrders->next;
-        free(tmp);
-    }
-    */
 }
 //==============================================================================================================================
 
@@ -245,7 +210,7 @@ void elaborateCommand(char command[]){
             aggiungi_ricetta();
             time++;
             break;
-        
+
         case 1:
             //Rimuovi_ricetta
             rimuovi_ricetta();
@@ -263,7 +228,7 @@ void elaborateCommand(char command[]){
             ordine();
             time++;
             break;
-        
+
         default:
             break;
     }
@@ -295,7 +260,7 @@ void printIngredientList(ingredientList_node* x){
     if(x == NULL){
         printf(")");
         return;
-    } 
+    }
     printf("-> %s %d ", x->name, x->quantity);
     printIngredientList(x->next);
 }
@@ -355,6 +320,33 @@ void printCourierList(courierList_node* x){
     printCourierList(x->next);
 }
 
+hashedString* searchString(char* x, unsigned int index){
+    if(stringHashTable[index] == NULL) return NULL;
+
+    hashedString* curr = stringHashTable[index];
+    while(curr){
+        if(strcmp(curr->string, x) == 0) return curr;
+        curr = curr->next;
+    }
+
+    return NULL;
+}
+
+hashedString* insertString(char* x, unsigned int index){
+    hashedString* newNode = (hashedString*)malloc(sizeof(hashedString));
+    newNode->string = (char*)malloc(strlen(x) + 1);
+    strcpy(newNode->string, x);
+    newNode->hash = index;
+    newNode->next = NULL;
+
+    if(stringHashTable[index] == NULL) stringHashTable[index] = newNode;
+    else{
+        newNode->next = stringHashTable[index];
+        stringHashTable[index] = newNode;
+    }
+    return newNode;
+}
+
 //corriere
 void corriere(){
     courierList_node* list = NULL;
@@ -407,20 +399,25 @@ void aggiungi_ricetta(){
     unsigned int    quantity;
 
     status = scanf("%s", name);
+
+    unsigned int index = hash(name);
+
     if(searchRecipe(name) != NULL){
         printf("ignorato\n");
         do{
             status = scanf("%s %d", ingName, &quantity);
             status = scanf("%c\n", &eol);
         }while(eol != '\n');
-        
+
         return;
     }
 
     //Creazione nodo ricetta
     recipeList_node* x = (recipeList_node*)malloc(sizeof(recipeList_node));
-    x->name = (char*)malloc(strlen(name) + 1);
-    strcpy(x->name, name);
+    hashedString* newString = searchString(name, index);
+    if(newString == NULL) newString = insertString(name, index);
+    x->name = newString->string;
+    x->hash = index;
     x->ingList  = NULL;
     x->next     = NULL;
     x->prev     = NULL;
@@ -432,11 +429,14 @@ void aggiungi_ricetta(){
     do{
         status = scanf("%s %d", ingName, &quantity);
 
+        unsigned int index2 = hash(ingName);
+
         //Creazione ingrediente
         ingredientList_node* y = (ingredientList_node*)malloc(sizeof(ingredientList_node));
-        y->name = (char*)malloc(strlen(ingName) + 1);
-        strcpy(y->name, ingName);
-        y->hash = hash(y->name);
+        hashedString* newIngString = searchString(ingName, index2);
+        if(newIngString == NULL) newIngString = insertString(ingName, index2);
+        y->name = newIngString->string;
+        y->hash = index2;
         y->quantity = quantity;
         y->next = NULL;
 
@@ -482,7 +482,7 @@ recipeList_node* searchRecipe(char* x){
     unsigned int index = hash(x);
 
     if(recipeHashTable[index] == NULL) return NULL;
-    
+
     recipeList_node* curr = recipeHashTable[index];
     while(curr){
         if(strcmp(curr->name, x) == 0) return curr;
@@ -541,7 +541,7 @@ void removeRecipe(recipeList_node** head, recipeList_node* x){
 
         x->next = NULL;
         x->prev = NULL;
-        free(x->name);
+        //free(x->name);
         removeIngredients(&(x->ingList));
         free(x);
         return;
@@ -553,7 +553,7 @@ void removeRecipe(recipeList_node** head, recipeList_node* x){
 
     x->next = NULL;
     x->prev = NULL;
-    free(x->name);
+    //free(x->name);
     removeIngredients(&(x->ingList));
     free(x);
     return;
@@ -563,7 +563,7 @@ void removeIngredients(ingredientList_node** x){
     while(*x){
         ingredientList_node* tmp = *x;
         *x = (*x)->next;
-        free(tmp->name);
+        //free(tmp->name);
         free(tmp);
     }
 }
@@ -590,10 +590,14 @@ void rifornimento(){
             insertLot(res, lot);
         }
         else{
+            unsigned int index = hash(name);
+
             //Creazione nuovo stock
             stockList_node* stock = (stockList_node*)malloc(sizeof(stockList_node));
-            stock->name = (char*)malloc(strlen(name) + 1);
-            strcpy(stock->name, name);
+            hashedString* newString = searchString(name, index);
+            if(newString == NULL) newString = insertString(name, index);
+            stock->name = newString->string;
+            stock->hash = index;
             stock->tot = 0;
             stock->lotHead = lot;
             stock->next = NULL;
@@ -611,7 +615,7 @@ void rifornimento(){
         unsigned int res = fullfillOrder(currOrder);
 
         orderList_node* nextOrder = currOrder->next;
-        
+
         //L'ordine sospeso è stato completato
         if(res == 1){
             orderList_node* completed = removeSuspendedOrder(&suspendedOrders, currOrder);
@@ -627,7 +631,7 @@ void rifornimento(){
 void insertStock(stockList_node* x){
     x->tot += x->lotHead->quantity;
 
-    unsigned int index = hash(x->name);
+    unsigned int index = x->hash;
 
     //Entru vuota
     if(stockHashTable[index] == NULL){
@@ -797,7 +801,7 @@ unsigned int fullfillOrder(orderList_node* x){ //0 se sospeso, 1 se completato
                 stock->tot -= ingRequestedQuantity;
                 currLot->quantity -= ingRequestedQuantity;
                 ingRequestedQuantity = 0;
-                
+
                 break;
             }
 
@@ -885,7 +889,7 @@ void enqueueSuspendedOrder(orderList_node* x){
 
 orderList_node* removeSuspendedOrder(orderList_node** head, orderList_node* x){
     if(lastSuspended == x) lastSuspended = lastSuspended->prev;
-    
+
     //Sto cercando di eliminare la testa
     if(*head == x){
         *head = x->next;
