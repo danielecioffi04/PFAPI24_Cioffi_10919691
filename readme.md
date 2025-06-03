@@ -7,7 +7,7 @@ The final project evalueation is 30/30
 ### Tools/Libraries
 The only "tool" used it Makefile
 
-## Features
+## Grades
 
 | Grade       | Status |
 |---------------|--------|
