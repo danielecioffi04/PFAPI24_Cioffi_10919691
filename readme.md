@@ -1,4 +1,4 @@
-# Algorithms and Data Structed project - 2023/2024
+# Algorithms and Data Structures project - 2023/2024
 Final project for the course "Algoritmi e Strutture Dati" (Algorithms and Data Structures) at Politecnico di Milano.
 Project consists of a monolithic program written in C that satisfies certain time and memory limits.
 
